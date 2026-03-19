@@ -1,8 +1,8 @@
 import os
 
 
-INPUT_PATH = "..\\QT\\"
-OUTPUT_PATH = "..\\src\\interface\\"
+INPUT_PATH = "../QT/"
+OUTPUT_PATH = "../src/interface/"
 
 
 def main():

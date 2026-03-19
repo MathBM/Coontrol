@@ -114,6 +114,13 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_3.addWidget(self.btp_processData)
 
+        self.btp_createSyntheticScan = QPushButton(self.grb_operations)
+        self.btp_createSyntheticScan.setObjectName(u"btp_createSyntheticScan")
+        self.btp_createSyntheticScan.setEnabled(True)
+        self.btp_createSyntheticScan.setStyleSheet(u"background-color: #4CAF50; color: white; font-weight: bold;")
+
+        self.verticalLayout_3.addWidget(self.btp_createSyntheticScan)
+
 
         self.verticalLayout.addWidget(self.grb_operations)
 
@@ -141,5 +148,6 @@ class Ui_MainWindow(object):
         self.btp_startScan.setText(QCoreApplication.translate("MainWindow", u"Start Scan", None))
         self.btp_stopScan.setText(QCoreApplication.translate("MainWindow", u"Stop Scan", None))
         self.btp_processData.setText(QCoreApplication.translate("MainWindow", u"Process Data", None))
+        self.btp_createSyntheticScan.setText(QCoreApplication.translate("MainWindow", u"Create Synthetic Scan", None))
     # retranslateUi
 

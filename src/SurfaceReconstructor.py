@@ -6,7 +6,7 @@ from src.Parameters import Parameters
 
 class SurfaceReconstructor():
   # Outline remover methods
-  def remove_outliers(point_cloud, nb_neighbors, std_ratio, nb_points, radius):
+  def remove_outliers(self, point_cloud, nb_neighbors, std_ratio, nb_points, radius):
     # Remoção de outliers estatísticos
     filtered_stat, _ = point_cloud.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
 
@@ -15,7 +15,7 @@ class SurfaceReconstructor():
 
     return filtered_radius
 
-  def dbscan_clustering(point_cloud, eps, min_samples):
+  def dbscan_clustering(self, point_cloud, eps, min_samples):
       points = np.asarray(point_cloud.points)
       clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
       labels = clustering.labels_
@@ -36,6 +36,15 @@ class SurfaceReconstructor():
   def isolate_load_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud, nb_neighbors: int,
                           std_ratio: float, nb_points: int, radius: float, threshold_distance: float, eps: float, min_samples: int
                           ) -> o3d.geometry.PointCloud:
+    print(f"\n[DEBUG isolate_load_points]")
+    print(f"  bucket: {len(bucket.points)} pontos")
+    bucket_pts = np.asarray(bucket.points)
+    print(f"    Z: {bucket_pts[:, 2].min():.1f} a {bucket_pts[:, 2].max():.1f} mm")
+    print(f"  load: {len(load.points)} pontos")
+    load_pts = np.asarray(load.points)
+    print(f"    Z: {load_pts[:, 2].min():.1f} a {load_pts[:, 2].max():.1f} mm")
+    print(f"  threshold_distance: {threshold_distance} mm")
+    
     kd_tree = o3d.geometry.KDTreeFlann(bucket)
     inner_load_points = []
 
@@ -45,23 +54,33 @@ class SurfaceReconstructor():
         if np.linalg.norm(np.array(point) - np.array(closest_point)) > threshold_distance:
             inner_load_points.append(point)
 
+    print(f"  Pontos após filtro de distância: {len(inner_load_points)}")
+    if len(inner_load_points) > 0:
+        inner_pts = np.array(inner_load_points)
+        print(f"    Z: {inner_pts[:, 2].min():.1f} a {inner_pts[:, 2].max():.1f} mm")
+
     removed_points = o3d.geometry.PointCloud()
     removed_points.points = o3d.utility.Vector3dVector(inner_load_points)
 
     inner_load, _ = removed_points.remove_statistical_outlier(nb_neighbors=nb_neighbors,
                                                               std_ratio=std_ratio)
+    print(f"  Pontos após statistical_outlier: {len(inner_load.points)}")
+                                                            
     inner_load, _ = inner_load.remove_radius_outlier(nb_points=nb_points, radius=radius)
+    print(f"  Pontos após radius_outlier: {len(inner_load.points)}")
 
     # Remover outliers
     filtered_pc = self.remove_outliers(inner_load, nb_neighbors, std_ratio, nb_points, radius)
+    print(f"  Pontos após remove_outliers: {len(filtered_pc.points)}")
 
     # Aplicar DBSCAN para remover outliers adicionais
     clustered_pc = self.dbscan_clustering(filtered_pc, eps, min_samples)
+    print(f"  Pontos após DBSCAN: {len(clustered_pc.points)}")
 
     return clustered_pc
   
   # Base reconstruction methods
-  def point_to_line_distance(points, origin, direction):
+  def point_to_line_distance(self, points, origin, direction):
     point_vecs = points - origin
     cross_prods = np.cross(direction, point_vecs)
     distances = np.linalg.norm(cross_prods, axis=1) / np.linalg.norm(direction)
@@ -80,7 +99,7 @@ class SurfaceReconstructor():
                       break
       return near_points
 
-  def generate_rays_with_slope(angular_step: float, slope: float, radius: float) -> list:
+  def generate_rays_with_slope(self, angular_step: float, slope: float, radius: float) -> list:
       rays = []
       angles = np.arange(0, 360, angular_step)
       for angle in angles:
@@ -92,18 +111,18 @@ class SurfaceReconstructor():
           rays.append(direction)
       return rays
 
-  def get_max_coordinate_in_plane(points, section, plane='xy', max_axis='y', tolerance=10):
+  def get_max_coordinate_in_plane(self, points, section, plane='xy', max_axis='y', tolerance=10):
     fixed_axis_idx = 2 if plane == 'xy' else 1 if plane == 'xz' else 0
     max_axis_idx = 0 if max_axis == 'x' else 1 if max_axis == 'y' else 2
     plane_coords = [p[max_axis_idx] for p in points if (section - tolerance) < p[fixed_axis_idx] < (section + tolerance)]
     
     return max(plane_coords)
 
-  def get_min_coordinates(points):
+  def get_min_coordinates(self, points):
     return min(points, key=lambda p: p[0])[0], min(points, key=lambda p: p[1])[1], min(points, key=lambda p: p[2])[2]
 
-  def get_max_coordinates(poitns):
-    return max(poitns, key=lambda p: p[0])[0], max(poitns, key=lambda p: p[1])[1], max(poitns, key=lambda p: p[2])[2]
+  def get_max_coordinates(self, points):
+    return max(points, key=lambda p: p[0])[0], max(points, key=lambda p: p[1])[1], max(points, key=lambda p: p[2])[2]
 
   def merge_load_and_bucket_points_legacy(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
                                    detection_threshold: float, distance_threshold: float, angular_step: float,

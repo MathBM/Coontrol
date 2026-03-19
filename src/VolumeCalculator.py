@@ -4,7 +4,7 @@ from functools import reduce
 
 
 class VolumeCalculator():
-    def _new_volume_under_triangle(triangle):
+    def _new_volume_under_triangle(self, triangle):
 
         p1, p2, p3 = triangle
         x1, z1, y1 = p1
@@ -13,7 +13,7 @@ class VolumeCalculator():
 
         return (((-x3*y2*z1) + (x2*y3*z1) + (x3*y1*z2) + (-x1*y3*z2) + (-x2*y1*z3) + (x1*y2*z3))/6)
 
-    def _get_triangles_vertices(triangles, vertices):
+    def _get_triangles_vertices(self, triangles, vertices):
         triangles_vertices = []
 
         for triangle in triangles:

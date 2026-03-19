@@ -14,7 +14,7 @@ class Parameters():
   class BucketRemoval():
     THRESHOLD_DISTANCE = 20
     NB_NEIGHBORS = 40
-    STD_RATIO = 1.0
+    STD_RATIO = 2.5  # Melhor resultado anterior
     NB_POINTS = 50
     RADIUS = 250.0
     DBSCAN_EPS = 49.619
@@ -40,5 +40,5 @@ class Parameters():
     STD_RATIO = 20
     
   class MeshReconstruction():
-    ALPHA = 150
+    ALPHA = 150  # Valor original
     N_FILTER_ITERATIONS = 5
