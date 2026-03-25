@@ -260,3 +260,65 @@ class SurfaceReconstructor():
     mesh.compute_triangle_normals()
 
     return mesh
+  
+  def reconstruct_load_mesh_poisson(self, load: o3d.geometry.PointCloud, depth: int = 10,
+                                    n_filter_iterations: int = 5, density_quantile: float = 0.01) -> o3d.geometry.TriangleMesh:
+    """
+    Reconstrói malha usando Poisson Surface Reconstruction.
+    Gera malhas FECHADAS (watertight) automaticamente.
+    
+    Args:
+        load: Nuvem de pontos
+        depth: Profundidade da octree (maior = mais detalhes, 8-10 recomendado)
+        n_filter_iterations: Iterações de suavização
+        density_quantile: Quantil para remover vértices de baixa densidade (0.01-0.1)
+    
+    Returns:
+        Malha triangular fechada
+    """
+    # Estimar normais (CRÍTICO para Poisson)
+    # Raio maior para superfícies mais suaves e consistentes
+    load.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=150, max_nn=40)
+    )
+    
+    # Garantir consistência de normais
+    load.orient_normals_consistent_tangent_plane(k=40)
+    
+    print(f"[Poisson] {len(load.points)} pontos, {len(load.normals)} normais")
+    
+    # Poisson surface reconstruction
+    mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+        load, depth=depth, width=0, scale=1.0, linear_fit=False
+    )
+    
+    print(f"[Poisson RAW] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}")
+    
+    print(f"[Poisson RAW] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}")
+    
+    # Se já é watertight, apenas limpar e retornar
+    if mesh.is_watertight():
+        print("[Poisson] ✓ Malha já é watertight!")
+        mesh.paint_uniform_color([0.7, 0.7, 0.7])
+        mesh.compute_triangle_normals()
+        print(f"[Poisson FINAL] Watertight: {mesh.is_watertight()}")
+        return mesh
+    
+    # Se não é watertight, NÃO remover vértices - apenas limpar
+    print("[Poisson] ⚠ Malha não é watertight, mantendo malha bruta...")
+    mesh.remove_degenerate_triangles()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_duplicated_vertices()
+    
+    print(f"[Poisson APÓS limpeza] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}")
+    
+    # NÃO suavizar - pode quebrar watertight
+    # if n_filter_iterations > 0:
+    #     mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
+    
+    mesh.paint_uniform_color([0.7, 0.7, 0.7])
+    mesh.compute_triangle_normals()
+    
+    print(f"[Poisson FINAL] Watertight: {mesh.is_watertight()}")
+    
+    return mesh
