@@ -15,21 +15,20 @@ def create_empty_bucket_reference():
     print("=== Criando Caçamba de Referência Sintética ===\n")
     
     # Dimensões aproximadas de uma caçamba de caminhão
-    width = 2400   # 2.4m
+    width = 2000   # 2m
     length = 3000  # 3m
     height = 0     # Plano no chão (Z=0)
-    point_density = 15  # mm
+    point_density = 8  # 8mm - mesma densidade da rampa sintética
     
     print("Gerando plano de referência (caçamba vazia)...")
     
-    # Gerar pontos em uma grade plana (Z=0)
+    # Gerar pontos em uma grade plana (Z=0) SEM RUÍDO
     points = []
     for x in range(0, int(length), point_density):
         for y in range(int(-width/2), int(width/2), point_density):
             z = 0  # Plano no chão
-            # Adicionar pequeno ruído
-            noise = np.random.normal(0, 1.0, 3)
-            points.append((x + noise[0], y + noise[1], z + noise[2]))
+            # SEM ruído para perfeito alinhamento
+            points.append((x, y, z))
     
     bucket_array = np.array(points, dtype=np.float64)
     

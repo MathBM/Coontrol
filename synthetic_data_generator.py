@@ -20,7 +20,7 @@ class SyntheticDataGenerator:
         height: float = 800,        # Altura da rampa (mm)
         point_density: int = 5,     # Densidade de pontos (menor = mais denso)
         noise_level: float = 2.0,   # Nível de ruído (mm)
-        add_ground: bool = True,    # Adicionar chão ao redor
+        add_ground: bool = False,    # Adicionar chão ao redor
     ):
         """
         Gera uma nuvem de pontos 3D representando uma rampa.
@@ -45,7 +45,9 @@ class SyntheticDataGenerator:
         for x in x_values:
             for y in y_values:
                 # Altura proporcional ao comprimento (rampa linear)
-                z = (x / length) * height
+                # IMPORTANTE: Z mínimo = 0.5mm (margem mínima para evitar conflito com bucket Z=0)
+                z_base = 0.5  # mm - margem mínima acima da caçamba
+                z = z_base + (x / length) * height
                 
                 # Adicionar ruído gaussiano
                 if noise_level > 0:
@@ -55,6 +57,9 @@ class SyntheticDataGenerator:
                 else:
                     x_noise = x
                     y_noise = y
+                
+                # Garantir que Z nunca fique abaixo da margem mínima
+                z = max(z_base, z)
                 
                 points.append((x_noise, y_noise, z))
         
@@ -66,6 +71,7 @@ class SyntheticDataGenerator:
             for x in np.arange(-ground_margin, 0, point_density * 2):
                 for y in np.arange(-width/2 - ground_margin, width/2 + ground_margin, point_density * 2):
                     z_ground = np.random.normal(0, noise_level * 0.5) if noise_level > 0 else 0
+                    z_ground = max(0.0, z_ground)  # Garantir Z >= 0
                     points.append((x, y, z_ground))
             
             # Chão atrás
@@ -80,11 +86,13 @@ class SyntheticDataGenerator:
                 # Lado esquerdo
                 for y in np.arange(-width/2 - ground_margin, -width/2, point_density * 2):
                     z_ground = ((x / length) * height) + (np.random.normal(0, noise_level * 0.5) if noise_level > 0 else 0)
+                    z_ground = max(0.0, z_ground)  # Garantir Z >= 0
                     points.append((x, y, z_ground))
                 
                 # Lado direito
                 for y in np.arange(width/2, width/2 + ground_margin, point_density * 2):
                     z_ground = ((x / length) * height) + (np.random.normal(0, noise_level * 0.5) if noise_level > 0 else 0)
+                    z_ground = max(0.0, z_ground)  # Garantir Z >= 0
                     points.append((x, y, z_ground))
         
         return points
@@ -118,7 +126,8 @@ class SyntheticDataGenerator:
         for step in range(num_steps):
             x_start = step * step_length
             x_end = (step + 1) * step_length
-            z = step * step_height
+            z_base = 0.5  # mm - margem mínima acima da caçamba
+            z = z_base + (step * step_height)
             
             x_values = np.arange(x_start, x_end, point_density)
             
@@ -127,6 +136,9 @@ class SyntheticDataGenerator:
                     z_noise = z + (np.random.normal(0, noise_level) if noise_level > 0 else 0)
                     x_noise = x + (np.random.normal(0, noise_level * 0.5) if noise_level > 0 else 0)
                     y_noise = y + (np.random.normal(0, noise_level * 0.5) if noise_level > 0 else 0)
+                    
+                    # Garantir que Z nunca fique abaixo da margem mínima
+                    z_noise = max(z_base, z_noise)
                     
                     points.append((x_noise, y_noise, z_noise))
         
@@ -164,16 +176,19 @@ class SyntheticDataGenerator:
                 # Normalizar x para [0, 1]
                 x_norm = x / length
                 
+                # Z base acima da caçamba
+                z_base = 0.5  # mm - margem mínima
+                
                 # Calcular altura baseado na curvatura
                 if curvature == "concave":
                     # Parábola: começa suave, fica mais íngreme
-                    z = max_height * (x_norm ** 2)
+                    z = z_base + (max_height * (x_norm ** 2))
                 elif curvature == "convex":
                     # Raiz quadrada: começa íngreme, fica mais suave
-                    z = max_height * np.sqrt(x_norm)
+                    z = z_base + (max_height * np.sqrt(x_norm))
                 else:
                     # Linear por padrão
-                    z = max_height * x_norm
+                    z = z_base + (max_height * x_norm)
                 
                 # Adicionar ruído
                 if noise_level > 0:
@@ -183,6 +198,9 @@ class SyntheticDataGenerator:
                 else:
                     x_noise = x
                     y_noise = y
+                
+                # Garantir que Z nunca fique abaixo da margem mínima
+                z = max(z_base, z)
                 
                 points.append((x_noise, y_noise, z))
         
@@ -256,7 +274,7 @@ if __name__ == "__main__":
         height=800,
         point_density=10,
         noise_level=3.0,
-        add_ground=True
+        add_ground=False
     )
     
     stats = generator.get_stats(ramp_points)

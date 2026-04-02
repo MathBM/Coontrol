@@ -69,7 +69,7 @@ class SyntheticScanCreator:
                 height=height,
                 point_density=point_density,
                 noise_level=noise_level,
-                add_ground=kwargs.get('add_ground', True)
+                add_ground=kwargs.get('add_ground', False)
             )
         
         elif ramp_type == "stepped":

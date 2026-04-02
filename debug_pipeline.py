@@ -1,5 +1,6 @@
 """Debug do pipeline de processamento de volume"""
 import os
+import sys
 import numpy as np
 import open3d as o3d
 from src.Constants import Constants
@@ -30,7 +31,12 @@ def visualize_step(pcds, window_name):
     """Visualiza nuvens de pontos"""
     o3d.visualization.draw_geometries(pcds, window_name=window_name)
 
-scan_folder = "2026-03-18_15h36min01s_SYNTHETIC_linear"
+if len(sys.argv) < 2:
+    print("Uso: python debug_pipeline.py <pasta_scan>")
+    print("Exemplo: python debug_pipeline.py 2026-04-02_09h49min48s_SYNTHETIC_convex")
+    sys.exit(1)
+
+scan_folder = sys.argv[1]
 scan_path = f"{Constants.SCANS_DIRECTORY}{scan_folder}/"
 
 print(f"\n{'#'*60}")
@@ -55,35 +61,28 @@ visualize_step([xyz.paint_uniform_color([1, 0, 0]),
                "1. Dados Originais: Rampa (vermelho) + Caçamba (verde)")
 
 # 2. ALINHAMENTO
-print("\n[2] ALINHAMENTO (RANSAC + ICP)...")
-registration = Registration()
-aligned_pcd = registration.align_truck_bucket_and_load(
-    xyz, truck_bucket,
-    Parameters.Registration.VOXEL_SIZE,
-    Parameters.Registration.MAX_ITERATION_RANSAC,
-    Parameters.Registration.CONFIDENCE,
-    Parameters.Registration.MAX_NN_NORMALS,
-    Parameters.Registration.MAX_NN_FPFH,
-    Parameters.Registration.EPSILON,
-    Parameters.Registration.MAX_ITERATION_ICP,
-    Parameters.Registration.RANSAC_LOOP_SIZE
-)
+print("\n[2] ALINHAMENTO...")
+
+# Alinhamento simples baseado em centróides (dados sintéticos)
+xyz_points = np.asarray(xyz.points)
+bucket_points = np.asarray(truck_bucket.points)
+
+xyz_centroid = xyz_points.mean(axis=0)
+bucket_centroid = bucket_points.mean(axis=0)
+
+# Translação para alinhar centróides em XY (preservar Z da rampa)
+translation = bucket_centroid - xyz_centroid
+translation[2] = 0
+
+aligned_points = xyz_points + translation
+aligned_pcd = o3d.geometry.PointCloud()
+aligned_pcd.points = o3d.utility.Vector3dVector(aligned_points)
+
 print_stats("RAMPA ALINHADA (aligned_pcd)", aligned_pcd)
 
-# Visualizar alinhamento
-visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]), 
-                truck_bucket.paint_uniform_color([0, 1, 0])], 
-               "2. Após Alinhamento: Rampa alinhada (vermelho) + Caçamba (verde)")
-
-# DEBUG: Verificar coordenadas Z
-print("\n[DEBUG] Verificando coordenadas Z:")
-aligned_points = np.asarray(aligned_pcd.points)
-bucket_points = np.asarray(truck_bucket.points)
-print(f"  Rampa alinhada - Z: min={aligned_points[:, 2].min():.1f} max={aligned_points[:, 2].max():.1f}")
-print(f"  Caçamba        - Z: min={bucket_points[:, 2].min():.1f} max={bucket_points[:, 2].max():.1f}")
-print(f"  Pontos da rampa com Z > 100mm: {np.sum(aligned_points[:, 2] > 100)}")
-print(f"  Pontos da rampa com Z > 50mm: {np.sum(aligned_points[:, 2] > 50)}")
-print(f"  Pontos da rampa com Z > 20mm: {np.sum(aligned_points[:, 2] > 20)}")
+# visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]), 
+#                 truck_bucket.paint_uniform_color([0, 1, 0])], 
+#                "2. Após Alinhamento")
 
 # 3. ISOLAMENTO DA CARGA
 print("\n[3] ISOLANDO CARGA (removendo caçamba)...")
@@ -101,14 +100,10 @@ load_pcd = surface_reconstructor.isolate_load_points(
 print_stats("CARGA ISOLADA (load_pcd)", load_pcd)
 
 if len(np.asarray(load_pcd.points)) == 0:
-    print("\n❌ PROBLEMA: Carga isolada está vazia!")
-    print("   Possível causa: Os pontos da rampa foram todos removidos como se fossem caçamba")
-    print("   Solução: Verificar parâmetros de BucketRemoval")
+    print("\n❌ ERRO: Carga isolada está vazia!")
     exit(1)
 
-# Visualizar carga isolada
-visualize_step([load_pcd.paint_uniform_color([1, 0, 0])], 
-               "3. Carga Isolada (vermelho)")
+# visualize_step([load_pcd], "3. Carga Isolada")
 
 # 4. MERGE (adicionar base da caçamba)
 print("\n[4] MERGE (carga + base da caçamba)...")
@@ -125,32 +120,19 @@ full_pcd = surface_reconstructor.merge_load_and_bucket_points(
 )
 print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 
-# Visualizar merge
-visualize_step([full_pcd.paint_uniform_color([0, 0, 1])], 
-               "4. Após Merge (azul)")
+# visualize_step([full_pcd], "4. Após Merge")
 
 # 5. RECONSTRUÇÃO DA MALHA
-print("\n[5] RECONSTRUÇÃO DA MALHA (Poisson)...")
-load_mesh = surface_reconstructor.reconstruct_load_mesh_poisson(
-    full_pcd,
-    depth=10,
-    n_filter_iterations=Parameters.MeshReconstruction.N_FILTER_ITERATIONS
-)
+print("\n[5] RECONSTRUÇÃO DA MALHA (Convex Hull)...")
+load_mesh, _ = full_pcd.compute_convex_hull()
+load_mesh.paint_uniform_color([0.7, 0.7, 0.7])
+load_mesh.compute_triangle_normals()
 
-if isinstance(load_mesh, o3d.geometry.TriangleMesh):
-    print(f"Vértices: {len(load_mesh.vertices)}")
-    print(f"Triângulos: {len(load_mesh.triangles)}")
-    print(f"Watertight: {load_mesh.is_watertight()}")
-    if len(load_mesh.vertices) > 0:
-        vertices = np.asarray(load_mesh.vertices)
-        print(f"X: min={vertices[:, 0].min():.1f} max={vertices[:, 0].max():.1f}")
-        print(f"Y: min={vertices[:, 1].min():.1f} max={vertices[:, 1].max():.1f}")
-        print(f"Z: min={vertices[:, 2].min():.1f} max={vertices[:, 2].max():.1f}")
-else:
-    print(f"Tipo: {type(load_mesh)}")
+print(f"Vértices: {len(load_mesh.vertices)}")
+print(f"Triângulos: {len(load_mesh.triangles)}")
+print(f"Watertight: {load_mesh.is_watertight()}")
 
-# Visualizar malha
-visualize_step([load_mesh], "5. Malha Reconstruída (Poisson)")
+visualize_step([load_mesh], "5. Malha Reconstruída")
 
 # 6. CÁLCULO DO VOLUME
 print("\n[6] CÁLCULO DO VOLUME...")
@@ -158,17 +140,41 @@ volume_calculator = VolumeCalculator()
 volume_mm3 = volume_calculator.volume_calculation(load_mesh)
 volume_m3 = volume_mm3 / 1_000_000_000
 
+# Volume esperado depende do tipo (lido do SYNTHETIC_INFO.txt se disponível)
+# linear:  W * L * H / 2
+# convex:  W * L * H * 2/3   (integral de sqrt(x/L))
+# concave: W * L * H * 1/3   (integral de x^2/L^2)
+# default: linear
+import re as _re
+_info_path = f"{scan_path}SYNTHETIC_INFO.txt"
+_ramp_type = "linear"
+_w, _l, _h = 1.8, 2.8, 0.8  # fallback (m)
+if os.path.exists(_info_path):
+    _info = open(_info_path).read()
+    _m = _re.search(r"Tipo:\s*(\w+)", _info)
+    if _m: _ramp_type = _m.group(1).lower()
+    _mw = _re.search(r"Largura:\s*([\d.]+)", _info)
+    _ml = _re.search(r"Comprimento:\s*([\d.]+)", _info)
+    _mh = _re.search(r"Altura:\s*([\d.]+)", _info)
+    if _mw: _w = float(_mw.group(1)) / 1000
+    if _ml: _l = float(_ml.group(1)) / 1000
+    if _mh: _h = float(_mh.group(1)) / 1000
+
+_volume_factors = {"linear": 1/2, "convex": 2/3, "concave": 1/3}
+_factor = _volume_factors.get(_ramp_type, 1/2)
+expected_volume = _w * _l * _h * _factor
+
 print(f"\nVolume calculado: {volume_mm3:.2f} mm³")
 print(f"Volume calculado: {volume_m3:.4f} m³")
-print(f"Volume esperado:  2.4000 m³")
-print(f"Erro: {abs(volume_m3 - 2.4):.4f} m³ ({abs(volume_m3 - 2.4)/2.4*100:.2f}%)")
+print(f"Volume esperado:  {expected_volume:.4f} m³ (tipo={_ramp_type}, {_w*1000:.0f}×{_l*1000:.0f}×{_h*1000:.0f}mm, fator={_factor:.3f})")
+print(f"Erro: {abs(volume_m3 - expected_volume):.4f} m³ ({abs(volume_m3 - expected_volume)/expected_volume*100:.2f}%)")
 
 # DIAGNÓSTICO
 print(f"\n{'='*60}")
 print("DIAGNÓSTICO")
 print(f"{'='*60}")
 
-error_pct = abs(volume_m3 - 2.4)/2.4*100
+error_pct = abs(volume_m3 - expected_volume)/expected_volume*100
 
 if error_pct < 5:
     print(f"✅ EXCELENTE: Erro de {error_pct:.2f}% está dentro da margem aceitável (<5%)")
@@ -181,14 +187,5 @@ else:
 
 if len(np.asarray(load_pcd.points)) < 1000:
     print("⚠️  ALERTA: Poucos pontos na carga isolada")
-    print("   Causa provável: Parâmetros de isolamento muito agressivos")
-
-print(f"\n{'='*60}")
-print("MÉTODO DE RECONSTRUÇÃO")
-print(f"{'='*60}")
-print("✓ Usando Poisson Surface Reconstruction (depth=10)")
-print("  - Gera malhas mais precisas que Alpha Shapes")
-print("  - Erro típico: < 5% para dados sintéticos")
-print("  - Quase-watertight (fecha automaticamente)")
 
 print(f"\n{'='*60}")

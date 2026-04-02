@@ -198,67 +198,237 @@ class SurfaceReconstructor():
                                    ray_cast_origin_x: float, ray_cast_origin_y: float, ray_cast_origin_z: float,
                                    simple_mesh_radius: int, simple_mesh_max_nn: int, simple_mesh_k: int, 
                                    nb_neighbors: int, std_ratio: float) -> o3d.geometry.PointCloud:  
+    print(f"[MERGE DEBUG] Iniciando com {len(load.points)} pontos de carga e {len(bucket.points)} pontos de caçamba")
+    
     bucket_points = np.asarray(bucket.points)
 
     # Define origin of the ray casting
     origin = np.array([ray_cast_origin_x, ray_cast_origin_y, ray_cast_origin_z])
+    print(f"[MERGE DEBUG] Ray casting origin: {origin}")
 
     # Define direction vector
     direction_vectors = bucket_points - origin
     magnitudes = np.linalg.norm(direction_vectors, axis=1)
     unitary_direction_vectors = direction_vectors / magnitudes[:, np.newaxis]
     rays_unit = np.hstack([[origin]*len(unitary_direction_vectors), unitary_direction_vectors])
+    print(f"[MERGE DEBUG] Rays criados: {len(rays_unit)}")
 
     # Generate simple mash to help finding the points above load surface
     radius = simple_mesh_radius
     max_nn = simple_mesh_max_nn
     k = simple_mesh_k
+    print(f"[MERGE DEBUG] Parâmetros: radius={radius}, max_nn={max_nn}, k={k}")
 
-    load.estimate_normals(
+    # Remove pontos duplicados para evitar erro Qhull
+    print(f"[MERGE DEBUG] Aplicando voxel_down_sample...")
+    load_clean = load.voxel_down_sample(voxel_size=0.5)
+    print(f"[MERGE DEBUG] Após voxel: {len(load_clean.points)} pontos")
+    
+    print(f"[MERGE DEBUG] Estimando normais...")
+    load_clean.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn))
-    load.orient_normals_consistent_tangent_plane(k)
+    
+    print(f"[MERGE DEBUG] Orientando normais consistentes...")
+    # Tratamento robusto para erro Qhull (pontos cocirculares/cospherical)
+    try:
+        load_clean.orient_normals_consistent_tangent_plane(k)
+        print(f"[MERGE DEBUG] Normais orientadas com sucesso")
+    except RuntimeError as e:
+        if "QH6239" in str(e) or "Qhull" in str(e):
+            print("⚠️  Aviso: Erro Qhull no merge. Usando método alternativo.")
+            # Adiciona jitter mínimo
+            points_array = np.asarray(load_clean.points)
+            jitter = np.random.normal(0, 0.01, points_array.shape)
+            load_clean.points = o3d.utility.Vector3dVector(points_array + jitter)
+            load_clean.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn))
+            try:
+                load_clean.orient_normals_consistent_tangent_plane(k)
+            except RuntimeError:
+                load_clean.orient_normals_towards_camera_location(camera_location=origin)
+        else:
+            raise
 
-    mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load, depth=2) 
+    print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
+    mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
+    print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
+    mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
+    print(f"[MERGE DEBUG] Malha criada: {len(mesh_real.vertices)} vértices, {len(mesh_real.triangles)} triângulos")
+    
+    print(f"[MERGE DEBUG] Suavizando malha...")
     mesh_real = mesh_real.filter_smooth_simple(number_of_iterations=1)
     mesh_real.paint_uniform_color([0.7, 0.7, 0.7])
+    print(f"[MERGE DEBUG] Malha suavizada")
 
+    print(f"[MERGE DEBUG] Convertendo para tensor mesh...")
     mesh_real_legacy = o3d.t.geometry.TriangleMesh.from_legacy(mesh_real)
 
+    print(f"[MERGE DEBUG] Criando cena de raycasting...")
     # Create a scene and add the triangle mesh
     scene = o3d.t.geometry.RaycastingScene()
     _ = scene.add_triangles(mesh_real_legacy)
 
+    print(f"[MERGE DEBUG] Preparando rays tensor...")
     rays = o3d.core.Tensor(rays_unit,
                           dtype=o3d.core.Dtype.Float32)
 
+    print(f"[MERGE DEBUG] Lançando {len(rays)} rays...")
     ans = scene.cast_rays(rays)
+    print(f"[MERGE DEBUG] Raycasting completo")
 
+    print(f"[MERGE DEBUG] Processando resultados...")
     direction_magnitudes = [np.sqrt(x**2 + y**2 + z**2) for x, y, z in direction_vectors]
     colors = np.array(['green' if hit_distance < direction_magnitudes[i] else 'blue' for i, hit_distance in enumerate(ans['t_hit'].numpy())])
 
+    print(f"[MERGE DEBUG] Selecionando pontos com cores...")
     points_caixa_brita = load.points
     points_to_select = colors == 'green'
     points_empty_base = np.asarray(bucket.points)
     points_empty_base = list(points_empty_base[points_to_select])
+    print(f"[MERGE DEBUG] Pontos selecionados da base: {len(points_empty_base)}")
+    
     points_caixa_brita.extend(points_empty_base)
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points_caixa_brita)
+    print(f"[MERGE DEBUG] PCD combinado: {len(pcd.points)} pontos")
 
+    print(f"[MERGE DEBUG] Removendo outliers estatísticos...")
     pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    print(f"[MERGE DEBUG] Após remoção de outliers: {len(pcd.points)} pontos")
 
+    print(f"[MERGE DEBUG] Merge finalizado com sucesso!")
     return pcd
     
   def reconstruct_load_mesh(self, load: o3d.geometry.PointCloud, alpha: float,
                             n_filter_iterations: int) -> o3d.geometry.TriangleMesh:
+    print(f"[Alpha Shapes] Criando malha com alpha={alpha}...")
     mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(load, alpha)
     bbox = load.get_axis_aligned_bounding_box()
     mesh = mesh.crop(bbox)
+    
+    print(f"[Alpha Shapes RAW] Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}, Watertight: {mesh.is_watertight()}")
 
     # Refine the mesh
     mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
+    
+    # Limpar degenerações
+    mesh.remove_degenerate_triangles()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_duplicated_vertices()
+    mesh.remove_non_manifold_edges()
+    
+    print(f"[Alpha Shapes APÓS LIMPEZA] Vértices: {len(mesh.vertices)}, Watertight: {mesh.is_watertight()}")
+    
+    # Calcular densidade para fechamento
+    distances = load.compute_nearest_neighbor_distance()
+    avg_density = np.mean(distances)
+    
+    # Tentar fechar se não for watertight
+    if not mesh.is_watertight():
+        print(f"[Alpha Shapes] Tentando fechar malha (densidade={avg_density:.1f}mm)...")
+        mesh = self.close_mesh_holes(mesh, avg_density=avg_density)
+    
     mesh.paint_uniform_color([0.7, 0.7, 0.7])
     mesh.compute_triangle_normals()
+    
+    print(f"[Alpha Shapes FINAL] Watertight: {mesh.is_watertight()}")
 
+    return mesh
+  
+  def close_mesh_holes(self, mesh: o3d.geometry.TriangleMesh, avg_density: float = 8.0) -> o3d.geometry.TriangleMesh:
+    """
+    Tenta fechar buracos em malhas não-watertight considerando a densidade dos pontos.
+    Otimizado para densidade uniforme de 8mm (rampa + caçamba).
+    
+    Args:
+        mesh: Malha a ser fechada
+        avg_density: Densidade média dos pontos em mm (ex: 8mm para ambos rampa e caçamba)
+    """
+    if mesh.is_watertight():
+        return mesh
+    
+    print(f"[FECHAR MALHA] Tentando fechar buracos (densidade={avg_density:.1f}mm)...")
+    print(f"[FECHAR MALHA] Malha inicial: {len(mesh.triangles)} triângulos")
+    
+    initial_triangles = len(mesh.triangles)
+    
+    # ESTRATÉGIA 1: Simplificação moderada ajustada para densidade 8mm
+    # Para 180k pontos com densidade 8mm: ~400k triângulos típico
+    # Reduzir para 10k-20k mantém estrutura com margem para subdivisão
+    target_triangles = max(10000, min(20000, initial_triangles // 10))
+    print(f"[FECHAR MALHA] Target simplificação: {target_triangles} triângulos")
+    
+    mesh_simple = mesh.simplify_quadric_decimation(
+        target_number_of_triangles=target_triangles
+    )
+    
+    # Limpar agressivamente
+    mesh_simple.remove_degenerate_triangles()
+    mesh_simple.remove_duplicated_triangles()
+    mesh_simple.remove_duplicated_vertices()
+    mesh_simple.remove_non_manifold_edges()
+    
+    print(f"[FECHAR MALHA] Simplificado: {len(mesh_simple.triangles)} triângulos, Watertight={mesh_simple.is_watertight()}")
+    
+    # Se simplificação fechou, subdividir 1x apenas (mais conservador)
+    if mesh_simple.is_watertight():
+        print(f"[FECHAR MALHA] ✓ Estratégia 1 funcionou! Subdividindo 1x...")
+        mesh_result = mesh_simple.subdivide_midpoint(number_of_iterations=1)
+        mesh_result.remove_degenerate_triangles()
+        mesh_result.remove_duplicated_triangles()
+        mesh_result.remove_non_manifold_edges()
+        
+        print(f"[FECHAR MALHA] ✓ FECHADA! Watertight={mesh_result.is_watertight()}, Triângulos={len(mesh_result.triangles)}")
+        return mesh_result
+    
+    # Estratégia 2: Mais agressiva
+    target_triangles_ultra = max(5000, initial_triangles // 20)
+    print(f"[FECHAR MALHA] Tentando estratégia 2: {target_triangles_ultra} triângulos")
+    mesh_ultra = mesh.simplify_quadric_decimation(
+        target_number_of_triangles=target_triangles_ultra
+    )
+    
+    mesh_ultra.remove_degenerate_triangles()
+    mesh_ultra.remove_duplicated_triangles()
+    mesh_ultra.remove_duplicated_vertices()
+    mesh_ultra.remove_non_manifold_edges()
+    
+    print(f"[FECHAR MALHA] Simplificação 2: {len(mesh_ultra.triangles)} triângulos, Watertight={mesh_ultra.is_watertight()}")
+    
+    if mesh_ultra.is_watertight():
+        print(f"[FECHAR MALHA] ✓ Estratégia 2 funcionou! Subdividindo 2x...")
+        # Subdividir 2x para densidade 8mm
+        mesh_result = mesh_ultra.subdivide_midpoint(number_of_iterations=2)
+        mesh_result.remove_degenerate_triangles()
+        mesh_result.remove_duplicated_triangles()
+        mesh_result.remove_non_manifold_edges()
+        print(f"[FECHAR MALHA] ✓ FECHADA! Watertight={mesh_result.is_watertight()}, Triângulos={len(mesh_result.triangles)}")
+        return mesh_result
+    
+    # Estratégia 3: MUITO agressiva (último recurso)
+    target_triangles_extreme = max(1500, min(3000, initial_triangles // 80))
+    print(f"[FECHAR MALHA] Tentando estratégia 3 (extrema): {target_triangles_extreme} triângulos")
+    mesh_extreme = mesh.simplify_quadric_decimation(
+        target_number_of_triangles=target_triangles_extreme
+    )
+    
+    mesh_extreme.remove_degenerate_triangles()
+    mesh_extreme.remove_duplicated_triangles()
+    mesh_extreme.remove_duplicated_vertices()
+    mesh_extreme.remove_non_manifold_edges()
+    
+    print(f"[FECHAR MALHA] Simplificação 3: {len(mesh_extreme.triangles)} triângulos, Watertight={mesh_extreme.is_watertight()}")
+    
+    if mesh_extreme.is_watertight():
+        print(f"[FECHAR MALHA] ✓ Estratégia 3 funcionou! Subdividindo 3x...")
+        mesh_result = mesh_extreme.subdivide_midpoint(number_of_iterations=3)
+        mesh_result.remove_degenerate_triangles()
+        mesh_result.remove_duplicated_triangles()
+        mesh_result.remove_non_manifold_edges()
+        print(f"[FECHAR MALHA] ✓ FECHADA! Watertight={mesh_result.is_watertight()}, Triângulos={len(mesh_result.triangles)}")
+        return mesh_result
+    
+    print(f"[FECHAR MALHA] ⚠ Ainda aberta após todas estratégias. Retornando malha original.")
     return mesh
   
   def reconstruct_load_mesh_poisson(self, load: o3d.geometry.PointCloud, depth: int = 10,
@@ -269,52 +439,71 @@ class SurfaceReconstructor():
     
     Args:
         load: Nuvem de pontos
-        depth: Profundidade da octree (maior = mais detalhes, 8-10 recomendado)
+        depth: Profundidade da octree (maior = mais detalhes, 8-12 recomendado)
         n_filter_iterations: Iterações de suavização
-        density_quantile: Quantil para remover vértices de baixa densidade (0.01-0.1)
+        density_quantile: Quantil para remover vértices de baixa densidade (0.0-0.1)
     
     Returns:
         Malha triangular fechada
     """
-    # Estimar normais (CRÍTICO para Poisson)
-    # Raio maior para superfícies mais suaves e consistentes
+    print(f"[POISSON DEBUG] Iniciando com {len(load.points)} pontos, depth={depth}")
+    
+    # Calcular densidade média dos pontos (deve ser ~8mm para dados sintéticos)
+    print(f"[POISSON DEBUG] Calculando distâncias...")
+    distances = load.compute_nearest_neighbor_distance()
+    avg_distance = np.mean(distances)
+    median_distance = np.median(distances)
+    
+    print(f"[Poisson] Densidade de pontos: média={avg_distance:.2f}mm, mediana={median_distance:.2f}mm")
+    
+    # Para densidade de 8mm:
+    # - Raio de normais: 24-32mm (3-4x a densidade)
+    # - k neighbors: ~30-40 (cobre área de ~24mm²)
+    normal_radius = avg_distance * 3.5  # 3.5x para captar contexto local
+    
+    # Estimar normais com raio adaptativo
+    print(f"[POISSON DEBUG] Estimando normais (radius={normal_radius:.1f}mm)...")
     load.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=150, max_nn=40)
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=60)
     )
     
-    # Garantir consistência de normais
-    load.orient_normals_consistent_tangent_plane(k=40)
+    # Orientar normais: para muitos pontos (>100k), orient_normals_consistent_tangent_plane é MUITO lento
+    # Usar método baseado em câmera que é O(n) em vez de O(n·k)
+    print(f"[POISSON DEBUG] Orientando normais (método camera)...")
+    bbox = load.get_axis_aligned_bounding_box()
+    center = bbox.get_center()
+    # Câmera acima do centro (Z positivo) - normais apontam para cima
+    camera_location = center + np.array([0, 0, 1000])  # 1m acima
+    load.orient_normals_towards_camera_location(camera_location)
     
-    print(f"[Poisson] {len(load.points)} pontos, {len(load.normals)} normais")
+    print(f"[Poisson] {len(load.points)} pontos, {len(load.normals)} normais (radius={normal_radius:.1f}mm)")
     
-    # Poisson surface reconstruction
+    # Get bounding box ANTES da reconstrução  
+    bbox = load.get_axis_aligned_bounding_box()
+    
+    # Poisson surface reconstruction com scale=1.0 (sem extrapolação)
+    print(f"[POISSON DEBUG] Iniciando create_from_point_cloud_poisson depth={depth}...")
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
         load, depth=depth, width=0, scale=1.0, linear_fit=False
     )
+    print(f"[POISSON DEBUG] Poisson completado!")
     
     print(f"[Poisson RAW] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}")
     
-    print(f"[Poisson RAW] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}")
-    
-    # Se já é watertight, apenas limpar e retornar
-    if mesh.is_watertight():
-        print("[Poisson] ✓ Malha já é watertight!")
-        mesh.paint_uniform_color([0.7, 0.7, 0.7])
-        mesh.compute_triangle_normals()
-        print(f"[Poisson FINAL] Watertight: {mesh.is_watertight()}")
-        return mesh
-    
-    # Se não é watertight, NÃO remover vértices - apenas limpar
-    print("[Poisson] ⚠ Malha não é watertight, mantendo malha bruta...")
+    # Limpar degenerações
+    print(f"[POISSON DEBUG] Limpando malha...")
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_triangles()
     mesh.remove_duplicated_vertices()
+    mesh.remove_non_manifold_edges()
     
-    print(f"[Poisson APÓS limpeza] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}")
+    print(f"[Poisson APÓS LIMPEZA] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}")
     
-    # NÃO suavizar - pode quebrar watertight
-    # if n_filter_iterations > 0:
-    #     mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
+    # Se não for watertight, tentar fechar considerando densidade
+    if not mesh.is_watertight():
+        print(f"[POISSON DEBUG] Chamando close_mesh_holes...")
+        mesh = self.close_mesh_holes(mesh, avg_density=avg_distance)
+        print(f"[POISSON DEBUG] close_mesh_holes completado!")
     
     mesh.paint_uniform_color([0.7, 0.7, 0.7])
     mesh.compute_triangle_normals()
