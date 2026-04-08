@@ -102,6 +102,17 @@ class SyntheticScanCreator:
                 curvature="convex"
             )
         
+        elif ramp_type == "sand_pile":
+            xyz, peaks, expected_volume_mm3 = self.generator.generate_sand_pile(
+                width=width,
+                length=length,
+                max_height=height,
+                point_density=point_density,
+                noise_level=noise_level,
+                n_peaks=kwargs.get('n_peaks', 3),
+                seed=kwargs.get('seed', 42),
+            )
+        
         else:
             raise ValueError(f"Tipo de rampa inválido: {ramp_type}")
         
@@ -118,14 +129,18 @@ class SyntheticScanCreator:
         print(f"[SYNTHETIC] Salvo em: {scan_path}")
         
         # Criar arquivo de metadados (opcional, para referência)
+        extra = {}
+        if ramp_type == "sand_pile":
+            extra['expected_volume_mm3'] = expected_volume_mm3
+            extra['peaks'] = peaks
         self._save_metadata(scan_path, ramp_type, width, length, height, 
-                           point_density, noise_level, len(xyz))
+                           point_density, noise_level, len(xyz), **extra)
         
         return scan_path
     
     def _save_metadata(self, scan_path: str, ramp_type: str, width: float,
                       length: float, height: float, density: int, 
-                      noise: float, num_points: int):
+                      noise: float, num_points: int, **kwargs):
         """Salva metadados do scan sintético para referência"""
         metadata = f"""=== SCAN SINTÉTICO ===
 Tipo: {ramp_type}
@@ -137,6 +152,14 @@ Ruído: {noise} mm
 Pontos gerados: {num_points}
 Data: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
+        if 'expected_volume_mm3' in kwargs:
+            ev = kwargs['expected_volume_mm3']
+            metadata += f"Volume esperado: {ev:.2f} mm3\n"
+            metadata += f"Volume esperado m3: {ev/1e9:.6f} m3\n"
+        if 'peaks' in kwargs:
+            metadata += f"Picos Gaussianos: {len(kwargs['peaks'])}\n"
+            for i, (cx, cy, A, sx, sy) in enumerate(kwargs['peaks']):
+                metadata += f"  Pico {i+1}: cx={cx:.1f} cy={cy:.1f} A={A:.1f} sx={sx:.1f} sy={sy:.1f}\n"
         with open(f"{scan_path}SYNTHETIC_INFO.txt", "w") as f:
             f.write(metadata)
     

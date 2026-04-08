@@ -103,7 +103,7 @@ if len(np.asarray(load_pcd.points)) == 0:
     print("\n❌ ERRO: Carga isolada está vazia!")
     exit(1)
 
-# visualize_step([load_pcd], "3. Carga Isolada")
+visualize_step([load_pcd], "3. Carga Isolada")
 
 # 4. MERGE (adicionar base da caçamba)
 print("\n[4] MERGE (carga + base da caçamba)...")
@@ -124,6 +124,7 @@ print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 
 # 5. RECONSTRUÇÃO DA MALHA
 print("\n[5] RECONSTRUÇÃO DA MALHA (Convex Hull)...")
+# convex hull
 load_mesh, _ = full_pcd.compute_convex_hull()
 load_mesh.paint_uniform_color([0.7, 0.7, 0.7])
 load_mesh.compute_triangle_normals()
@@ -164,9 +165,18 @@ _volume_factors = {"linear": 1/2, "convex": 2/3, "concave": 1/3}
 _factor = _volume_factors.get(_ramp_type, 1/2)
 expected_volume = _w * _l * _h * _factor
 
+# Para sand_pile o volume esperado está diretamente nos metadados
+_mev = _re.search(r"Volume esperado m3:\s*([\d.]+)", _info if os.path.exists(_info_path) else "")
+if _mev:
+    expected_volume = float(_mev.group(1))
+    _factor = None
+
 print(f"\nVolume calculado: {volume_mm3:.2f} mm³")
 print(f"Volume calculado: {volume_m3:.4f} m³")
-print(f"Volume esperado:  {expected_volume:.4f} m³ (tipo={_ramp_type}, {_w*1000:.0f}×{_l*1000:.0f}×{_h*1000:.0f}mm, fator={_factor:.3f})")
+if _factor is not None:
+    print(f"Volume esperado:  {expected_volume:.4f} m³ (tipo={_ramp_type}, {_w*1000:.0f}×{_l*1000:.0f}×{_h*1000:.0f}mm, fator={_factor:.3f})")
+else:
+    print(f"Volume esperado:  {expected_volume:.4f} m³ (tipo={_ramp_type}, integração numérica)")
 print(f"Erro: {abs(volume_m3 - expected_volume):.4f} m³ ({abs(volume_m3 - expected_volume)/expected_volume*100:.2f}%)")
 
 # DIAGNÓSTICO

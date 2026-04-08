@@ -206,6 +206,85 @@ class SyntheticDataGenerator:
         
         return points
     
+    def generate_sand_pile(
+        self,
+        width: float = 2000,
+        length: float = 3000,
+        max_height: float = 600,
+        point_density: int = 8,
+        noise_level: float = 3.0,
+        n_peaks: int = 3,
+        seed: int = 42,
+    ):
+        """
+        Gera um monte de areia com múltiplos picos Gaussianos.
+
+        Forma: z(x,y) = sum_i A_i * exp(-((x-cx_i)^2/(2*sx_i^2) + (y-cy_i)^2/(2*sy_i^2)))
+
+        Volume analítico (integração numérica em grade 1mm):
+            V = integral_0^L integral_{-W/2}^{W/2} z(x,y) dy dx
+
+        Args:
+            width: Largura da caixa (mm)
+            length: Comprimento da caixa (mm)
+            max_height: Amplitude máxima dos picos (mm)
+            point_density: Espaçamento entre pontos (mm)
+            noise_level: Ruído gaussiano (mm)
+            n_peaks: Número de picos
+            seed: Seed para reproducibilidade
+
+        Returns:
+            (points, peaks, expected_volume_mm3)
+            peaks: lista de (cx, cy, amplitude, sx, sy)
+        """
+        rng = np.random.default_rng(seed)
+
+        # Definir picos garantindo que estejam bem dentro da caixa
+        peaks = []
+        for _ in range(n_peaks):
+            cx = rng.uniform(length * 0.15, length * 0.85)
+            cy = rng.uniform(-width * 0.35, width * 0.35)
+            amplitude = rng.uniform(max_height * 0.5, max_height)
+            sx = rng.uniform(length * 0.08, length * 0.20)
+            sy = rng.uniform(width * 0.08, width * 0.20)
+            peaks.append((float(cx), float(cy), float(amplitude), float(sx), float(sy)))
+
+        z_base = 0.5  # mm - margem mínima acima do piso da caçamba
+
+        def z_func(x, y):
+            z = z_base
+            for cx, cy, A, sx, sy in peaks:
+                z += A * np.exp(-((x - cx) ** 2 / (2 * sx ** 2) + (y - cy) ** 2 / (2 * sy ** 2)))
+            return z
+
+        # Gerar nuvem de pontos
+        x_values = np.arange(0, length, point_density)
+        y_values = np.arange(-width / 2, width / 2, point_density)
+        points = []
+
+        for x in x_values:
+            for y in y_values:
+                z = z_func(x, y)
+                if noise_level > 0:
+                    z += rng.normal(0, noise_level)
+                    xn = x + rng.normal(0, noise_level * 0.5)
+                    yn = y + rng.normal(0, noise_level * 0.5)
+                else:
+                    xn, yn = x, y
+                z = max(z_base, z)
+                points.append((float(xn), float(yn), float(z)))
+
+        # Volume esperado por integração numérica (grade 1mm, sem ruído)
+        xs = np.arange(0, length, 1.0)
+        ys = np.arange(-width / 2, width / 2, 1.0)
+        XX, YY = np.meshgrid(xs, ys)
+        ZZ = np.full_like(XX, z_base)
+        for cx, cy, A, sx, sy in peaks:
+            ZZ = ZZ + A * np.exp(-((XX - cx) ** 2 / (2 * sx ** 2) + (YY - cy) ** 2 / (2 * sy ** 2)))
+        expected_volume_mm3 = float(ZZ.sum())  # dx=dy=1mm, so area per cell = 1mm²
+
+        return points, peaks, expected_volume_mm3
+
     def save_as_npz(self, points, filepath: str):
         """
         Salva os pontos no formato .npz (mesmo formato usado pelo código).

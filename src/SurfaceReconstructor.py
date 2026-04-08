@@ -221,9 +221,10 @@ class SurfaceReconstructor():
 
     # Remove pontos duplicados para evitar erro Qhull
     print(f"[MERGE DEBUG] Aplicando voxel_down_sample...")
-    load_clean = load.voxel_down_sample(voxel_size=0.5)
-    print(f"[MERGE DEBUG] Após voxel: {len(load_clean.points)} pontos")
     
+    #load_clean = load.voxel_down_sample(voxel_size=0.5)
+    load_clean = load;
+    print(f"[MERGE DEBUG] Após voxel: {len(load_clean.points)} pontos")
     print(f"[MERGE DEBUG] Estimando normais...")
     load_clean.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn))
@@ -247,12 +248,13 @@ class SurfaceReconstructor():
             except RuntimeError:
                 load_clean.orient_normals_towards_camera_location(camera_location=origin)
         else:
+            print(f"Erro inesperado durante orientação de normais: {e}")
             raise
 
     print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
     mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
-    print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
-    mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
+    #print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
+    #mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
     print(f"[MERGE DEBUG] Malha criada: {len(mesh_real.vertices)} vértices, {len(mesh_real.triangles)} triângulos")
     
     print(f"[MERGE DEBUG] Suavizando malha...")
