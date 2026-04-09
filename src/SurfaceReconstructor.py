@@ -2,48 +2,7 @@ import open3d as o3d
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-from src.Parameters import Parameters
-
-class SurfaceReconstructor():
-  # Outline remover methods
-  def remove_outliers(self, point_cloud, nb_neighbors, std_ratio, nb_points, radius):
-    # Remoção de outliers estatísticos
-    filtered_stat, _ = point_cloud.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
-
-    # Remoção de outliers por raio
-    filtered_radius, _ = filtered_stat.remove_radius_outlier(nb_points=nb_points, radius=radius)
-
-    return filtered_radius
-
-  def dbscan_clustering(self, point_cloud, eps, min_samples):
-      points = np.asarray(point_cloud.points)
-      clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
-      labels = clustering.labels_
-
-      # Identificar o maior cluster (ignorar outliers com label -1)
-      unique_labels, counts = np.unique(labels[labels != -1], return_counts=True)
-      if len(unique_labels) == 0:
-          return point_cloud
-      largest_cluster_label = unique_labels[np.argmax(counts)]
-
-      # Filtrar pontos do maior cluster
-      largest_cluster_points = points[labels == largest_cluster_label]
-      filtered_pc = o3d.geometry.PointCloud()
-      filtered_pc.points = o3d.utility.Vector3dVector(largest_cluster_points)
-
-      return filtered_pc
-  
-  def isolate_load_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud, nb_neighbors: int,
-                          std_ratio: float, nb_points: int, radius: float, threshold_distance: float, eps: float, min_samples: int
-                          ) -> o3d.geometry.PointCloud:
-    print(f"\n[DEBUG isolate_load_points]")
-    print(f"  bucket: {len(bucket.points)} pontos")
-    bucket_pts = np.asarray(bucket.points)
-    print(f"    Z: {bucket_pts[:, 2].min():.1f} a {bucket_pts[:, 2].max():.1f} mm")
-    print(f"  load: {len(load.points)} pontos")
-    load_pts = np.asarray(load.points)
-    print(f"    Z: {load_pts[:, 2].min():.1f} a {load_pts[:, 2].max():.1f} mm")
-    print(f"  threshold_distance: {threshold_distance} mm")
+class SurfaceReconstructor:
     
     kd_tree = o3d.geometry.KDTreeFlann(bucket)
     inner_load_points = []
@@ -109,83 +68,62 @@ class SurfaceReconstructor():
     max_axis_idx = 0 if max_axis == 'x' else 1 if max_axis == 'y' else 2
     plane_coords = [p[max_axis_idx] for p in points if (section - tolerance) < p[fixed_axis_idx] < (section + tolerance)]
     
-    return max(plane_coords)
+    def remove_outliers(self, point_cloud, nb_neighbors, std_ratio, nb_points, radius):
+        if len(point_cloud.points) == 0:
+            return point_cloud
+        # Remoção estatística
+        filtered_stat, _ = point_cloud.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+        # Remoção por raio
+        filtered_radius, _ = filtered_stat.remove_radius_outlier(nb_points=nb_points, radius=radius)
+        return filtered_radius
 
-  def get_min_coordinates(self, points):
-    return min(points, key=lambda p: p[0])[0], min(points, key=lambda p: p[1])[1], min(points, key=lambda p: p[2])[2]
-
-  def get_max_coordinates(self, points):
-    return max(points, key=lambda p: p[0])[0], max(points, key=lambda p: p[1])[1], max(points, key=lambda p: p[2])[2]
-
-  def merge_load_and_bucket_points_legacy(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
-                                   detection_threshold: float, distance_threshold: float, angular_step: float,
-                                   slope:float, nb_neighbors: int, std_ratio: float) -> o3d.geometry.PointCloud:
-    # Define the ray origin and direction
-    min_x, _, min_z = self.get_min_coordinates(inner_load_points)
-    max_x, _, max_z = self.get_max_coordinates(inner_load_points)
-    center_x = (min_x + max_x) / 2
-
-    delta_z = max_z - min_z
-    lower_z = min_z + delta_z*0.15
-    center_z = (min_z + max_z) / 2
-    upper_z = max_z - delta_z*0.15
-
-    lower_y = self.get_max_coordinate_in_plane(inner_load_points, lower_z, 'xy', 'y', 10)*1.2
-    center_y = self.get_max_coordinate_in_plane(inner_load_points, center_z, 'xy', 'y', 10)*1.2
-    upper_y = self.get_max_coordinate_in_plane(inner_load_points, upper_z, 'xy', 'y', 10)*1.2
-
-    ray_origins = [
-    np.array([center_x, lower_y, lower_z]),
-    np.array([center_x, center_y, center_z]),
-    np.array([center_x, upper_y, upper_z])]
-    rays = []
-
-    rays += self.generate_rays_with_slope(angular_step, slope, radius=50)
-    rays += self.generate_rays_with_slope(angular_step, slope, radius=200)
-    rays += self.generate_rays_with_slope(angular_step, slope, radius=300)
-    rays += self.generate_rays_with_slope(angular_step, slope, radius=500)
-    near_points = []
-
-    # Get direction as unit vector of each ray
-    directions = [ray / np.linalg.norm(ray) for ray in rays]
-
-    bucket_points = np.asarray(bucket.points)
-    inner_load_points = np.asarray(load.points)
-
-    # Iterate over each direction to find the lines that meet the threshold criteria
-    valid_lines = []
-    for origin in ray_origins:
-        for direction in directions:
-            bucket_distances = self.point_to_line_distance(bucket_points, origin, direction)
-            load_distances = self.point_to_line_distance(inner_load_points, origin, direction)
+    def dbscan_clustering(self, point_cloud, eps, min_samples):
+        points = np.asarray(point_cloud.points)
+        if len(points) == 0:
+            return point_cloud
             
-            if np.any(bucket_distances < detection_threshold) and np.any(load_distances < detection_threshold):
-                valid_lines.append(direction)
-                
-    near_points = []
-    for origin in ray_origins:
-        for direction in valid_lines:
-            bucket_distances = self.point_to_line_distance(bucket.points, origin, direction)
-            close_points = bucket_points[np.where(bucket_distances < detection_threshold)]
-            near_points.extend(close_points)
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+        labels = clustering.labels_
 
-    near_pcd = o3d.geometry.PointCloud()
-    near_pcd.points = o3d.utility.Vector3dVector(near_points)
-    kd_tree = o3d.geometry.KDTreeFlann(near_pcd)
-    inner_bucket_points = []
-
-    for point in bucket.points:
-        [_, idx, _] = kd_tree.search_knn_vector_3d(point, 1)
-        closest_point = near_pcd.points[idx[0]]
-        if np.linalg.norm(np.array(point) - np.array(closest_point)) < distance_threshold:
-            inner_bucket_points.append(point)
+        unique_labels, counts = np.unique(labels[labels != -1], return_counts=True)
+        if len(unique_labels) == 0:
+            return o3d.geometry.PointCloud() # Retorna vazio se só houver ruído
             
-    points = np.concatentate((np.asarray(inner_bucket_points), np.asarray(load.points)))
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+        largest_cluster_label = unique_labels[np.argmax(counts)]
+        largest_cluster_points = points[labels == largest_cluster_label]
+        
+        filtered_pc = o3d.geometry.PointCloud()
+        filtered_pc.points = o3d.utility.Vector3dVector(largest_cluster_points)
+        return filtered_pc
     
-    return pcd
+    def isolate_load_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud, 
+                            nb_neighbors: int, std_ratio: float, nb_points: int, radius: float, 
+                            threshold_distance: float, eps: float, min_samples: int) -> o3d.geometry.PointCloud:
+        
+        print(f"\n[DEBUG isolate_load_points]")
+        # PERFORMANCE: Substituindo loop KDTree por função nativa do Open3D
+        dists = np.asarray(load.compute_point_cloud_distance(bucket))
+        inner_load_mask = dists > threshold_distance
+        
+        load_pts_np = np.asarray(load.points)
+        inner_points = load_pts_np[inner_load_mask]
+        
+        print(f"  Pontos após filtro de distância: {len(inner_points)}")
+        if len(inner_points) == 0:
+            return o3d.geometry.PointCloud()
+
+        removed_points = o3d.geometry.PointCloud()
+        removed_points.points = o3d.utility.Vector3dVector(inner_points)
+
+        # Filtros sequenciais
+        filtered_pc = self.remove_outliers(removed_points, nb_neighbors, std_ratio, nb_points, radius)
+        print(f"  Pontos após remove_outliers: {len(filtered_pc.points)}")
+
+        # DBSCAN final
+        clustered_pc = self.dbscan_clustering(filtered_pc, eps, min_samples)
+        print(f"  Pontos após DBSCAN: {len(clustered_pc.points)}")
+
+        return clustered_pc
   
   def merge_load_and_bucket_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
                                    ray_cast_origin_x: float, ray_cast_origin_y: float, ray_cast_origin_z: float,

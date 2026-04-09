@@ -1,18 +1,20 @@
-"""
-Gerador de dados sintéticos 3D para simular sensor LIDAR.
-Cria uma rampa com dimensões e inclinação configuráveis.
-"""
-
 import numpy as np
 import open3d as o3d
-from src.Constants import Constants
-
 
 class SyntheticDataGenerator:
     
     def __init__(self):
         pass
-    
+
+    def _add_noise(self, x: float, y: float, z: float, noise_level: float):
+        """Aplica ruído gaussiano aos eixos X, Y e Z."""
+        if noise_level > 0:
+            nz = z + np.random.normal(0, noise_level)
+            nx = x + np.random.normal(0, noise_level * 0.5)
+            ny = y + np.random.normal(0, noise_level * 0.5)
+            return (nx, ny, nz)
+        return (x, y, z)
+
     def generate_ramp(
         self,
         width: float = 2000,        # Largura da rampa (mm)
@@ -22,26 +24,11 @@ class SyntheticDataGenerator:
         noise_level: float = 2.0,   # Nível de ruído (mm)
         add_ground: bool = False,    # Adicionar chão ao redor
     ):
-        """
-        Gera uma nuvem de pontos 3D representando uma rampa.
-        
-        Args:
-            width: Largura da rampa em mm
-            length: Comprimento da rampa em mm
-            height: Altura máxima da rampa em mm
-            point_density: Espaçamento entre pontos (menor = mais denso)
-            noise_level: Quantidade de ruído a adicionar
-            add_ground: Se deve adicionar pontos do chão ao redor
-            
-        Returns:
-            Lista de tuplas (x, y, z) representando a nuvem de pontos
-        """
         points = []
-        
-        # Gerar pontos da rampa
         x_values = np.arange(0, length, point_density)
         y_values = np.arange(-width/2, width/2, point_density)
         
+        # 1. SUPERFÍCIE DA RAMPA
         for x in x_values:
             for y in y_values:
                 # Altura proporcional ao comprimento (rampa linear)
@@ -96,33 +83,41 @@ class SyntheticDataGenerator:
                     points.append((x, y, z_ground))
         
         return points
-    
+
+    def generate_hills(
+        self,
+        width: float = 4000,
+        length: float = 4000,
+        max_height: float = 500,
+        frequency: float = 0.002, # Controla a quantidade de montes
+        point_density: int = 25,
+        noise_level: float = 5.0
+    ):
+        """Gera um terreno com montes (seno/cosseno) para teste de volume."""
+        points = []
+        x_range = np.arange(0, length, point_density)
+        y_range = np.arange(0, width, point_density)
+        
+        for x in x_range:
+            for y in y_range:
+                # Combinação de Seno e Cosseno para criar picos e vales
+                z = (np.sin(x * frequency) * np.cos(y * frequency)) * max_height
+                # Garante que não haja valores negativos (base no chão)
+                z = max(0, z) 
+                points.append(self._add_noise(x, y, z, noise_level))
+        return points
+
     def generate_stepped_ramp(
         self,
         width: float = 2000,
         num_steps: int = 5,
         step_length: float = 600,
         step_height: float = 150,
-        point_density: int = 5,
+        point_density: int = 15,
         noise_level: float = 2.0,
     ):
-        """
-        Gera uma rampa com degraus (escada).
-        
-        Args:
-            width: Largura da rampa
-            num_steps: Número de degraus
-            step_length: Comprimento de cada degrau
-            step_height: Altura de cada degrau
-            point_density: Espaçamento entre pontos
-            noise_level: Quantidade de ruído
-            
-        Returns:
-            Lista de tuplas (x, y, z)
-        """
         points = []
         y_values = np.arange(-width/2, width/2, point_density)
-        
         for step in range(num_steps):
             x_start = step * step_length
             x_end = (step + 1) * step_length
@@ -306,42 +301,23 @@ class SyntheticDataGenerator:
             points: Lista de tuplas (x, y, z)
         """
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.points = o3d.utility.Vector3dVector(np.array(points))
         
-        # Colorir baseado na altura (Z)
-        colors = np.asarray(pcd.points)
-        z_values = colors[:, 2]
-        z_normalized = (z_values - z_values.min()) / (z_values.max() - z_values.min())
-        colors_rgb = np.zeros((len(z_normalized), 3))
-        colors_rgb[:, 0] = z_normalized  # Red channel
-        colors_rgb[:, 2] = 1 - z_normalized  # Blue channel
-        pcd.colors = o3d.utility.Vector3dVector(colors_rgb)
+        # Colorir por altura
+        z_vals = np.asarray(pcd.points)[:, 2]
+        z_norm = (z_vals - z_vals.min()) / (z_vals.max() - z_vals.min() + 1e-7)
+        colors = np.zeros((len(z_norm), 3))
+        colors[:, 0] = z_norm  # Vermelho para o topo
+        colors[:, 2] = 1 - z_norm # Azul para a base
+        pcd.colors = o3d.utility.Vector3dVector(colors)
         
-        # Adicionar sistema de coordenadas
-        coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=500, origin=[0, 0, 0])
-        
-        o3d.visualization.draw_geometries([pcd, coord_frame])
-    
-    def get_stats(self, points):
-        """
-        Retorna estatísticas sobre a nuvem de pontos.
-        """
-        xyz = np.array(points)
-        
-        stats = {
-            'num_points': len(points),
-            'x_range': (xyz[:, 0].min(), xyz[:, 0].max()),
-            'y_range': (xyz[:, 1].min(), xyz[:, 1].max()),
-            'z_range': (xyz[:, 2].min(), xyz[:, 2].max()),
-            'centroid': xyz.mean(axis=0)
-        }
-        
-        return stats
+        coord = o3d.geometry.TriangleMesh.create_coordinate_frame(size=500)
+        print(f"Exibindo: {window_name} ({len(points)} pontos)")
+        o3d.visualization.draw_geometries([pcd, coord], window_name=window_name)
 
-
-# Exemplo de uso
+# --- EXECUÇÃO ---
 if __name__ == "__main__":
-    generator = SyntheticDataGenerator()
+    gen = SyntheticDataGenerator()
     
     print("=== Gerador de Dados Sintéticos 3D ===\n")
     
