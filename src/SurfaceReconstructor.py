@@ -62,15 +62,8 @@ class SurfaceReconstructor():
     removed_points = o3d.geometry.PointCloud()
     removed_points.points = o3d.utility.Vector3dVector(inner_load_points)
 
-    inner_load, _ = removed_points.remove_statistical_outlier(nb_neighbors=nb_neighbors,
-                                                              std_ratio=std_ratio)
-    print(f"  Pontos após statistical_outlier: {len(inner_load.points)}")
-                                                            
-    inner_load, _ = inner_load.remove_radius_outlier(nb_points=nb_points, radius=radius)
-    print(f"  Pontos após radius_outlier: {len(inner_load.points)}")
-
-    # Remover outliers
-    filtered_pc = self.remove_outliers(inner_load, nb_neighbors, std_ratio, nb_points, radius)
+    # Única passagem de outlier removal (evita erosão por múltiplos passes)
+    filtered_pc = self.remove_outliers(removed_points, nb_neighbors, std_ratio, nb_points, radius)
     print(f"  Pontos após remove_outliers: {len(filtered_pc.points)}")
 
     # Aplicar DBSCAN para remover outliers adicionais
@@ -199,99 +192,48 @@ class SurfaceReconstructor():
                                    simple_mesh_radius: int, simple_mesh_max_nn: int, simple_mesh_k: int, 
                                    nb_neighbors: int, std_ratio: float) -> o3d.geometry.PointCloud:  
     print(f"[MERGE DEBUG] Iniciando com {len(load.points)} pontos de carga e {len(bucket.points)} pontos de caçamba")
-    
-    bucket_points = np.asarray(bucket.points)
 
-    # Define origin of the ray casting
-    origin = np.array([ray_cast_origin_x, ray_cast_origin_y, ray_cast_origin_z])
-    print(f"[MERGE DEBUG] Ray casting origin: {origin}")
+    load_pts = np.asarray(load.points)
+    bucket_pts = np.asarray(bucket.points)
 
-    # Define direction vector
-    direction_vectors = bucket_points - origin
-    magnitudes = np.linalg.norm(direction_vectors, axis=1)
-    unitary_direction_vectors = direction_vectors / magnitudes[:, np.newaxis]
-    rays_unit = np.hstack([[origin]*len(unitary_direction_vectors), unitary_direction_vectors])
-    print(f"[MERGE DEBUG] Rays criados: {len(rays_unit)}")
+    # Abordagem: mapa de altura 2D (height map).
+    # Para cada célula (x, y), armazena a z máxima da carga.
+    # Um ponto da caçamba é selecionado (base sob a carga) quando:
+    #   - existe carga na sua posição (x,y): z_carga > THRESHOLD
+    #   - o ponto da caçamba está abaixo da carga: z_bucket < z_carga
+    #
+    # Isso substitui a abordagem de raycasting contra malha Poisson depth=2,
+    # que criava uma malha fechada com base sintética abaixo de z=0 e selecionava
+    # ~80% das paredes da caçamba erroneamente.
+    FLOOR_THRESHOLD = 20.0  # mm — ignora ruído no piso (igual a THRESHOLD_DISTANCE)
+    cell_size = 30.0  # mm — resolução do mapa (balanceia precisão vs velocidade)
 
-    # Generate simple mash to help finding the points above load surface
-    radius = simple_mesh_radius
-    max_nn = simple_mesh_max_nn
-    k = simple_mesh_k
-    print(f"[MERGE DEBUG] Parâmetros: radius={radius}, max_nn={max_nn}, k={k}")
+    x_min = min(load_pts[:,0].min(), bucket_pts[:,0].min())
+    y_min = min(load_pts[:,1].min(), bucket_pts[:,1].min())
+    x_max = max(load_pts[:,0].max(), bucket_pts[:,0].max())
+    y_max = max(load_pts[:,1].max(), bucket_pts[:,1].max())
+    nx = int((x_max - x_min) / cell_size) + 2
+    ny = int((y_max - y_min) / cell_size) + 2
 
-    # Remove pontos duplicados para evitar erro Qhull
-    print(f"[MERGE DEBUG] Aplicando voxel_down_sample...")
-    
-    #load_clean = load.voxel_down_sample(voxel_size=0.5)
-    load_clean = load;
-    print(f"[MERGE DEBUG] Após voxel: {len(load_clean.points)} pontos")
-    print(f"[MERGE DEBUG] Estimando normais...")
-    load_clean.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn))
-    
-    print(f"[MERGE DEBUG] Orientando normais consistentes...")
-    # Tratamento robusto para erro Qhull (pontos cocirculares/cospherical)
-    try:
-        load_clean.orient_normals_consistent_tangent_plane(k)
-        print(f"[MERGE DEBUG] Normais orientadas com sucesso")
-    except RuntimeError as e:
-        if "QH6239" in str(e) or "Qhull" in str(e):
-            print("⚠️  Aviso: Erro Qhull no merge. Usando método alternativo.")
-            # Adiciona jitter mínimo
-            points_array = np.asarray(load_clean.points)
-            jitter = np.random.normal(0, 0.01, points_array.shape)
-            load_clean.points = o3d.utility.Vector3dVector(points_array + jitter)
-            load_clean.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn))
-            try:
-                load_clean.orient_normals_consistent_tangent_plane(k)
-            except RuntimeError:
-                load_clean.orient_normals_towards_camera_location(camera_location=origin)
-        else:
-            print(f"Erro inesperado durante orientação de normais: {e}")
-            raise
+    height_map = np.full((nx, ny), -np.inf)
+    lxi = ((load_pts[:,0] - x_min) / cell_size).astype(int).clip(0, nx-1)
+    lyi = ((load_pts[:,1] - y_min) / cell_size).astype(int).clip(0, ny-1)
+    np.maximum.at(height_map, (lxi, lyi), load_pts[:,2])
+    valid_cells = np.sum(height_map > FLOOR_THRESHOLD)
+    print(f"[MERGE DEBUG] Height map {nx}x{ny} criado, {valid_cells} células com carga (z>{FLOOR_THRESHOLD}mm)")
 
-    print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
-    mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
-    #print(f"[MERGE DEBUG] Criando malha Poisson depth=2...")
-    #mesh_real, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(load_clean, depth=2) 
-    print(f"[MERGE DEBUG] Malha criada: {len(mesh_real.vertices)} vértices, {len(mesh_real.triangles)} triângulos")
-    
-    print(f"[MERGE DEBUG] Suavizando malha...")
-    mesh_real = mesh_real.filter_smooth_simple(number_of_iterations=1)
-    mesh_real.paint_uniform_color([0.7, 0.7, 0.7])
-    print(f"[MERGE DEBUG] Malha suavizada")
+    bxi = ((bucket_pts[:,0] - x_min) / cell_size).astype(int).clip(0, nx-1)
+    byi = ((bucket_pts[:,1] - y_min) / cell_size).astype(int).clip(0, ny-1)
+    load_z_at_bucket = height_map[bxi, byi]
 
-    print(f"[MERGE DEBUG] Convertendo para tensor mesh...")
-    mesh_real_legacy = o3d.t.geometry.TriangleMesh.from_legacy(mesh_real)
+    # Seleciona pontos da caçamba que estão abaixo da superfície da carga
+    points_to_select = (load_z_at_bucket > FLOOR_THRESHOLD) & (bucket_pts[:,2] < load_z_at_bucket)
+    selected_bucket_pts = bucket_pts[points_to_select]
+    print(f"[MERGE DEBUG] Pontos selecionados da base: {len(selected_bucket_pts)}")
 
-    print(f"[MERGE DEBUG] Criando cena de raycasting...")
-    # Create a scene and add the triangle mesh
-    scene = o3d.t.geometry.RaycastingScene()
-    _ = scene.add_triangles(mesh_real_legacy)
-
-    print(f"[MERGE DEBUG] Preparando rays tensor...")
-    rays = o3d.core.Tensor(rays_unit,
-                          dtype=o3d.core.Dtype.Float32)
-
-    print(f"[MERGE DEBUG] Lançando {len(rays)} rays...")
-    ans = scene.cast_rays(rays)
-    print(f"[MERGE DEBUG] Raycasting completo")
-
-    print(f"[MERGE DEBUG] Processando resultados...")
-    direction_magnitudes = [np.sqrt(x**2 + y**2 + z**2) for x, y, z in direction_vectors]
-    colors = np.array(['green' if hit_distance < direction_magnitudes[i] else 'blue' for i, hit_distance in enumerate(ans['t_hit'].numpy())])
-
-    print(f"[MERGE DEBUG] Selecionando pontos com cores...")
-    points_caixa_brita = load.points
-    points_to_select = colors == 'green'
-    points_empty_base = np.asarray(bucket.points)
-    points_empty_base = list(points_empty_base[points_to_select])
-    print(f"[MERGE DEBUG] Pontos selecionados da base: {len(points_empty_base)}")
-    
-    points_caixa_brita.extend(points_empty_base)
+    points_combined = np.vstack([load_pts, selected_bucket_pts])
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points_caixa_brita)
+    pcd.points = o3d.utility.Vector3dVector(points_combined)
     print(f"[MERGE DEBUG] PCD combinado: {len(pcd.points)} pontos")
 
     print(f"[MERGE DEBUG] Removendo outliers estatísticos...")
@@ -300,6 +242,20 @@ class SurfaceReconstructor():
 
     print(f"[MERGE DEBUG] Merge finalizado com sucesso!")
     return pcd
+
+  def reconstruct_load_mesh_legacy(self, load: o3d.geometry.PointCloud, alpha: float,
+                            n_filter_iterations: int) -> o3d.geometry.TriangleMesh:
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(load, alpha)
+    bbox = load.get_axis_aligned_bounding_box()
+    mesh = mesh.crop(bbox)
+
+    # Refine the mesh
+    mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
+    mesh.paint_uniform_color([0.7, 0.7, 0.7])
+    mesh.compute_triangle_normals()
+
+    return mesh
+
     
   def reconstruct_load_mesh(self, load: o3d.geometry.PointCloud, alpha: float,
                             n_filter_iterations: int) -> o3d.geometry.TriangleMesh:
@@ -450,43 +406,56 @@ class SurfaceReconstructor():
     """
     print(f"[POISSON DEBUG] Iniciando com {len(load.points)} pontos, depth={depth}")
     
-    # Calcular densidade média dos pontos (deve ser ~8mm para dados sintéticos)
+    # Downsample para Poisson: Alpha/BPA exigem <5k pts, Poisson aguenta mais mas
+    # 291k pontos ainda é lento. voxel=15mm mantém boa resolução (>densidade 8mm)
+    # e reduz superfície de ~290k para ~40-60k pontos, tornando tudo O(10x) mais rápido.
+    POISSON_VOXEL = 15.0  # mm — ajusta se quiser mais/menos detalhe
+    load_ds = load.voxel_down_sample(voxel_size=POISSON_VOXEL)
+    print(f"[POISSON DEBUG] Após voxel_down_sample({POISSON_VOXEL}mm): {len(load_ds.points)} pontos (de {len(load.points)})")
+
+    # Calcular densidade média dos pontos no conjunto reduzido
     print(f"[POISSON DEBUG] Calculando distâncias...")
-    distances = load.compute_nearest_neighbor_distance()
+    distances = load_ds.compute_nearest_neighbor_distance()
     avg_distance = np.mean(distances)
     median_distance = np.median(distances)
     
     print(f"[Poisson] Densidade de pontos: média={avg_distance:.2f}mm, mediana={median_distance:.2f}mm")
     
-    # Para densidade de 8mm:
-    # - Raio de normais: 24-32mm (3-4x a densidade)
-    # - k neighbors: ~30-40 (cobre área de ~24mm²)
     normal_radius = avg_distance * 3.5  # 3.5x para captar contexto local
     
     # Estimar normais com raio adaptativo
     print(f"[POISSON DEBUG] Estimando normais (radius={normal_radius:.1f}mm)...")
-    load.estimate_normals(
+    load_ds.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=60)
     )
     
-    # Orientar normais: para muitos pontos (>100k), orient_normals_consistent_tangent_plane é MUITO lento
-    # Usar método baseado em câmera que é O(n) em vez de O(n·k)
     print(f"[POISSON DEBUG] Orientando normais (método camera)...")
-    bbox = load.get_axis_aligned_bounding_box()
+    bbox = load_ds.get_axis_aligned_bounding_box()
     center = bbox.get_center()
-    # Câmera acima do centro (Z positivo) - normais apontam para cima
     camera_location = center + np.array([0, 0, 1000])  # 1m acima
-    load.orient_normals_towards_camera_location(camera_location)
+    load_ds.orient_normals_towards_camera_location(camera_location)
+
+    # Pontos do piso da caçamba (z ≈ 0) têm normais apontando para cima após orient_towards_camera,
+    # mas para Poisson correto precisam apontar para BAIXO (para fora do volume fechado).
+    # Inverte normais cujo z está no nível do piso (z < 5mm acima do z_min da nuvem).
+    pts_arr = np.asarray(load_ds.points)
+    nrm_arr = np.asarray(load_ds.normals)
+    z_floor_max = pts_arr[:,2].min() + 5.0  # 5mm acima do piso
+    floor_mask = pts_arr[:,2] <= z_floor_max
+    nrm_arr[floor_mask] *= -1.0  # flip: agora apontam para baixo (outward)
+    load_ds.normals = o3d.utility.Vector3dVector(nrm_arr)
+    print(f"[POISSON DEBUG] Normais de {floor_mask.sum()} pontos de piso invertidas (outward downward)")
     
-    print(f"[Poisson] {len(load.points)} pontos, {len(load.normals)} normais (radius={normal_radius:.1f}mm)")
+    print(f"[Poisson] {len(load_ds.points)} pontos, {len(load_ds.normals)} normais (radius={normal_radius:.1f}mm)")
     
     # Get bounding box ANTES da reconstrução  
-    bbox = load.get_axis_aligned_bounding_box()
+    bbox = load_ds.get_axis_aligned_bounding_box()
     
-    # Poisson surface reconstruction com scale=1.0 (sem extrapolação)
+    # Poisson surface reconstruction
+    # depth=8: resolução ~bbox/256 ≈ 12mm para caixa 3000mm — adequado para 8mm density
     print(f"[POISSON DEBUG] Iniciando create_from_point_cloud_poisson depth={depth}...")
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        load, depth=depth, width=0, scale=1.0, linear_fit=False
+        load_ds, depth=depth, width=0, scale=1.1, linear_fit=False
     )
     print(f"[POISSON DEBUG] Poisson completado!")
     

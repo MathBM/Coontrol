@@ -7,7 +7,6 @@ use std::thread;
 fn main() -> std::io::Result<()> {
     let mut handles = Vec::new();
     let arguments = args().collect::<Vec<String>>();
-
     let output_path = arguments[1].clone();
     let addresses = arguments[2..].to_vec();
 

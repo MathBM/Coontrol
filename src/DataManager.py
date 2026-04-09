@@ -71,7 +71,7 @@ class DataManager():
                                                                   Parameters.BucketRemoval.DBSCAN_EPS,
                                                                   Parameters.BucketRemoval.DBSCAN_MIN_SAMPLES)
 
-        full_pcd = self.surface_reconstructor.merge_load_and_bucket_points(load_pcd, truck_bucket,
+        full_pcd = self.surface_reconstructor.merge_load_and_bucket_points(truck_bucket, load_pcd,
                                                                            Parameters.MergePoints.RAY_CAST_ORIGIN_X,
                                                                            Parameters.MergePoints.RAY_CAST_ORIGIN_Y,
                                                                            Parameters.MergePoints.RAY_CAST_ORIGIN_Z,
@@ -84,7 +84,7 @@ class DataManager():
         # Usar Poisson Surface Reconstruction (gera malhas mais precisas)
         load_mesh = self.surface_reconstructor.reconstruct_load_mesh_poisson(
             full_pcd, 
-            depth=10,  # Melhor resultado: erro 3.19%
+            depth=Parameters.MeshReconstruction.POISSON_DEPTH,
             n_filter_iterations=Parameters.MeshReconstruction.N_FILTER_ITERATIONS
         )
         

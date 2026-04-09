@@ -13,10 +13,10 @@ class Parameters():
   # Bucket point removal algorithm --------------------------------------------------------
   class BucketRemoval():
     THRESHOLD_DISTANCE = 20
-    NB_NEIGHBORS = 40
-    STD_RATIO = 2.5  # Melhor resultado anterior
-    NB_POINTS = 50
-    RADIUS = 250.0
+    NB_NEIGHBORS = 20       # Local o suficiente para formas complexas (density 8mm)
+    STD_RATIO = 5.0         # Menos agressivo: preserva vales/selas entre picos
+    NB_POINTS = 5           # Mínimo de vizinhos no raio (fácil satisfazer a 8mm)
+    RADIUS = 50.0           # ~6x densidade: elimina outliers reais sem erodir bordas
     DBSCAN_EPS = 49.619
     DBSCAN_MIN_SAMPLES = 7
 
@@ -44,5 +44,5 @@ class Parameters():
     ALPHA = 100  # Alpha Shapes: 80-120 (menor = mais detalhes, tenta fechar malha)
     N_FILTER_ITERATIONS = 8  # Suavização: 5-10
     # Parâmetros Poisson (método recomendado)
-    POISSON_DEPTH = 10  # Melhor resultado anterior
+    POISSON_DEPTH = 8   # depth=8 → ~12mm para caixa 3000mm, rápido com 40-60k pts
     DENSITY_QUANTILE = 0.0  # 0.0 = não remove vértices (preserva volume)

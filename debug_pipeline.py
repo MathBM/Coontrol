@@ -80,9 +80,9 @@ aligned_pcd.points = o3d.utility.Vector3dVector(aligned_points)
 
 print_stats("RAMPA ALINHADA (aligned_pcd)", aligned_pcd)
 
-# visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]), 
-#                 truck_bucket.paint_uniform_color([0, 1, 0])], 
-#                "2. Após Alinhamento")
+visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]), 
+                 truck_bucket.paint_uniform_color([0, 1, 0])], 
+                "2. Após Alinhamento")
 
 # 3. ISOLAMENTO DA CARGA
 print("\n[3] ISOLANDO CARGA (removendo caçamba)...")
@@ -108,7 +108,7 @@ visualize_step([load_pcd], "3. Carga Isolada")
 # 4. MERGE (adicionar base da caçamba)
 print("\n[4] MERGE (carga + base da caçamba)...")
 full_pcd = surface_reconstructor.merge_load_and_bucket_points(
-    load_pcd, truck_bucket,
+    truck_bucket, load_pcd,
     Parameters.MergePoints.RAY_CAST_ORIGIN_X,
     Parameters.MergePoints.RAY_CAST_ORIGIN_Y,
     Parameters.MergePoints.RAY_CAST_ORIGIN_Z,
@@ -120,14 +120,15 @@ full_pcd = surface_reconstructor.merge_load_and_bucket_points(
 )
 print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 
-# visualize_step([full_pcd], "4. Após Merge")
+visualize_step([full_pcd], "4. Após Merge")
 
 # 5. RECONSTRUÇÃO DA MALHA
-print("\n[5] RECONSTRUÇÃO DA MALHA (Convex Hull)...")
-# convex hull
-load_mesh, _ = full_pcd.compute_convex_hull()
-load_mesh.paint_uniform_color([0.7, 0.7, 0.7])
-load_mesh.compute_triangle_normals()
+print("\n[5] RECONSTRUÇÃO DA MALHA (Poisson)...")
+load_mesh = surface_reconstructor.reconstruct_load_mesh_poisson(
+    full_pcd,
+    depth=Parameters.MeshReconstruction.POISSON_DEPTH,
+    density_quantile=Parameters.MeshReconstruction.DENSITY_QUANTILE
+)
 
 print(f"Vértices: {len(load_mesh.vertices)}")
 print(f"Triângulos: {len(load_mesh.triangles)}")
