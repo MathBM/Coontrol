@@ -63,20 +63,37 @@ visualize_step([xyz.paint_uniform_color([1, 0, 0]),
 # 2. ALINHAMENTO
 print("\n[2] ALINHAMENTO...")
 
-# Alinhamento simples baseado em centróides (dados sintéticos)
-xyz_points = np.asarray(xyz.points)
-bucket_points = np.asarray(truck_bucket.points)
+is_synthetic = os.path.exists(f"{scan_path}SYNTHETIC_INFO.txt")
 
-xyz_centroid = xyz_points.mean(axis=0)
-bucket_centroid = bucket_points.mean(axis=0)
-
-# Translação para alinhar centróides em XY (preservar Z da rampa)
-translation = bucket_centroid - xyz_centroid
-translation[2] = 0
-
-aligned_points = xyz_points + translation
-aligned_pcd = o3d.geometry.PointCloud()
-aligned_pcd.points = o3d.utility.Vector3dVector(aligned_points)
+if is_synthetic:
+    # Dados sintéticos: scan já está no mesmo sistema de coordenadas da caçamba.
+    # Usamos translação por centróide (XY only) — idêntico ao que seria feito em
+    # produção se o sensor estivesse perfeitamente calibrado.
+    # RANSAC+ICP falha aqui porque o scan sintético só tem superfície de carga
+    # (sem paredes da caçamba visíveis para matching de features).
+    print("[ALINHAMENTO] Scan sintético — usando translação por centróide (XY)")
+    xyz_points = np.asarray(xyz.points)
+    bucket_points_arr = np.asarray(truck_bucket.points)
+    translation = bucket_points_arr.mean(axis=0) - xyz_points.mean(axis=0)
+    translation[2] = 0  # preservar Z
+    aligned_arr = xyz_points + translation
+    aligned_pcd = o3d.geometry.PointCloud()
+    aligned_pcd.points = o3d.utility.Vector3dVector(aligned_arr)
+else:
+    # Dados reais: usar RANSAC + Generalized ICP — idêntico ao DataManager.process_data
+    print("[ALINHAMENTO] Scan real — usando RANSAC + ICP (igual ao DataManager)")
+    registration = Registration()
+    aligned_pcd = registration.align_truck_bucket_and_load(
+        xyz, truck_bucket,
+        Parameters.Registration.VOXEL_SIZE,
+        Parameters.Registration.MAX_ITERATION_RANSAC,
+        Parameters.Registration.CONFIDENCE,
+        Parameters.Registration.MAX_NN_NORMALS,
+        Parameters.Registration.MAX_NN_FPFH,
+        Parameters.Registration.EPSILON,
+        Parameters.Registration.MAX_ITERATION_ICP,
+        Parameters.Registration.RANSAC_LOOP_SIZE
+    )
 
 print_stats("RAMPA ALINHADA (aligned_pcd)", aligned_pcd)
 
@@ -105,8 +122,8 @@ if len(np.asarray(load_pcd.points)) == 0:
 
 visualize_step([load_pcd], "3. Carga Isolada")
 
-# 4. MERGE (adicionar base da caçamba)
-print("\n[4] MERGE (carga + base da caçamba)...")
+# 4. MERGE (apenas para visualização)
+print("\n[4] MERGE (carga + base da caçamba — apenas visualização)...")
 full_pcd = surface_reconstructor.merge_load_and_bucket_points(
     truck_bucket, load_pcd,
     Parameters.MergePoints.RAY_CAST_ORIGIN_X,
@@ -122,8 +139,8 @@ print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 
 visualize_step([full_pcd], "4. Após Merge")
 
-# 5. RECONSTRUÇÃO DA MALHA
-print("\n[5] RECONSTRUÇÃO DA MALHA (Poisson)...")
+# 5. RECONSTRUÇÃO DA MALHA (visualização — não é usada para calcular volume)
+print("\n[5] RECONSTRUÇÃO DA MALHA (Poisson — apenas visualização)...")
 load_mesh = surface_reconstructor.reconstruct_load_mesh_poisson(
     full_pcd,
     depth=Parameters.MeshReconstruction.POISSON_DEPTH,
@@ -133,13 +150,21 @@ load_mesh = surface_reconstructor.reconstruct_load_mesh_poisson(
 print(f"Vértices: {len(load_mesh.vertices)}")
 print(f"Triângulos: {len(load_mesh.triangles)}")
 print(f"Watertight: {load_mesh.is_watertight()}")
+if not load_mesh.is_watertight():
+    print("⚠️  Malha aberta — cálculo de volume via malha seria impreciso.")
+    print("   Volume real é calculado via mapa de alturas (próximo passo).")
 
-visualize_step([load_mesh], "5. Malha Reconstruída")
+visualize_step([load_mesh], "5. Malha Reconstruída (visualização)")
 
-# 6. CÁLCULO DO VOLUME
-print("\n[6] CÁLCULO DO VOLUME...")
+# 6. CÁLCULO DO VOLUME — via mapa de alturas 2D sobre load_pcd
+# V = ∑ z_max(x,y) × Δx × Δy  (integra a superfície escaneada acima de z=0)
+# Robusto a buracos e malhas abertas: células sem dado contribuem z=0.
+print("\n[6] CÁLCULO DO VOLUME (mapa de alturas)...")
 volume_calculator = VolumeCalculator()
-volume_mm3 = volume_calculator.volume_calculation(load_mesh)
+volume_mm3 = volume_calculator.volume_from_heightmap(
+    load_pcd,
+    cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE
+)
 volume_m3 = volume_mm3 / 1_000_000_000
 
 # Volume esperado depende do tipo (lido do SYNTHETIC_INFO.txt se disponível)

@@ -45,4 +45,11 @@ class Parameters():
     N_FILTER_ITERATIONS = 8  # Suavização: 5-10
     # Parâmetros Poisson (método recomendado)
     POISSON_DEPTH = 8   # depth=8 → ~12mm para caixa 3000mm, rápido com 40-60k pts
-    DENSITY_QUANTILE = 0.0  # 0.0 = não remove vértices (preserva volume)
+    DENSITY_QUANTILE = 0.1  # Remove 10% de vértices de menor suporte → elimina balões em buracos/bordas
+
+  class VolumeCalculation():
+    # Tamanho da célula do grid para integração do mapa de alturas.
+    # Deve ser ~2× a densidade do scan: absorve ruído X/Y (±1.5mm com noise_level=3mm)
+    # evitando células vazias por colisão entre pontos adjacentes (8mm espaçamento).
+    # cell=8mm: ~16% erro; cell=15mm: ~2.4% erro; cell=20mm: ~1.6% erro.
+    HEIGHTMAP_CELL_SIZE = 15.0  # mm (≈2× scan density de 8mm)

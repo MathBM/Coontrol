@@ -188,6 +188,31 @@
                 </widget>
               </item>
               <item>
+                <layout class="QHBoxLayout" name="horizontalLayout_method">
+                  <item>
+                    <widget class="QLabel" name="lbl_method">
+                      <property name="text">
+                        <string>Método:</string>
+                      </property>
+                    </widget>
+                  </item>
+                  <item>
+                    <widget class="QComboBox" name="cmb_method">
+                      <item>
+                        <property name="text">
+                          <string>Mapa de Alturas (novo)</string>
+                        </property>
+                      </item>
+                      <item>
+                        <property name="text">
+                          <string>Poisson + Malha (legado)</string>
+                        </property>
+                      </item>
+                    </widget>
+                  </item>
+                </layout>
+              </item>
+              <item>
                 <widget class="QPushButton" name="btp_processData">
                   <property name="enabled">
                     <bool>true</bool>

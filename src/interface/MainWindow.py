@@ -63,8 +63,14 @@ class MainWindow(QMainWindow):
 
         row_index = row_selected[0].row()
         scan_folder = self.scanList[row_index]
+        scan_path = f"{Constants.SCANS_DIRECTORY}{scan_folder}/"
 
-        volume = self.data_manager.process_data(f"{Constants.SCANS_DIRECTORY}{scan_folder}/")
+        if self.ui.cmb_method.currentIndex() == 0:
+            # Fluxo novo: alinhamento adaptativo + mapa de alturas 2D
+            volume = self.data_manager.process_data(scan_path)
+        else:
+            # Fluxo legado: RANSAC+ICP + merge + Poisson + teorema da divergência
+            volume = self.data_manager.process_data_legacy(scan_path)
 
         item = self.ui.tbw_scans.item(row_index, 1)
         item.setText(str(volume))

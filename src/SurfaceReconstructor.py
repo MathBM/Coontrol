@@ -461,20 +461,30 @@ class SurfaceReconstructor():
     
     print(f"[Poisson RAW] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}, Triângulos: {len(mesh.triangles)}")
     
-    # Limpar degenerações
-    print(f"[POISSON DEBUG] Limpando malha...")
+    # --- Filtro 1: Remover vértices de baixa densidade ---
+    # O Poisson retorna uma densidade por vértice que mede o suporte local dos pontos de entrada.
+    # Vértices com densidade baixa correspondem a regiões sem dados (buracos, bordas escassas)
+    # onde o Poisson extrapola → gera "balões". Removê-los elimina esses artefatos.
+    if density_quantile > 0.0:
+        densities_np = np.asarray(densities)
+        threshold = np.quantile(densities_np, density_quantile)
+        low_density_mask = densities_np < threshold
+        mesh.remove_vertices_by_mask(low_density_mask)
+        print(f"[Poisson] Density filter q={density_quantile}: removidos {low_density_mask.sum()} vértices "
+              f"(threshold={threshold:.4f}), restam {len(mesh.vertices)}")
+    
+    # --- Filtro 2: Cortar ao bounding box dos pontos de entrada ---
+    # scale=1.1 expande o octree do Poisson para além dos dados; o crop elimina essa extrapolação.
+    mesh = mesh.crop(bbox)
+    print(f"[Poisson] Após crop ao bbox: {len(mesh.vertices)} vértices, {len(mesh.triangles)} triângulos")
+    
+    # Limpar degenerações introduzidas pelo crop/remoção de vértices
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_triangles()
     mesh.remove_duplicated_vertices()
     mesh.remove_non_manifold_edges()
     
     print(f"[Poisson APÓS LIMPEZA] Watertight: {mesh.is_watertight()}, Vértices: {len(mesh.vertices)}")
-    
-    # Se não for watertight, tentar fechar considerando densidade
-    if not mesh.is_watertight():
-        print(f"[POISSON DEBUG] Chamando close_mesh_holes...")
-        mesh = self.close_mesh_holes(mesh, avg_density=avg_distance)
-        print(f"[POISSON DEBUG] close_mesh_holes completado!")
     
     mesh.paint_uniform_color([0.7, 0.7, 0.7])
     mesh.compute_triangle_normals()
