@@ -1,22 +1,22 @@
 class Parameters():
   # Registration algorithm ----------------------------------------------------------------
   class Registration():
-    VOXEL_SIZE = 30
-    MAX_NN_NORMALS = 30
-    MAX_NN_FPFH = 100
-    CONFIDENCE = 1.0
-    MAX_ITERATION_RANSAC = 1000000
+    VOXEL_SIZE = 20  # Reduzido para mais detalhes no alinhamento
+    MAX_NN_NORMALS = 40  # Mais vizinhos para normais mais estáveis
+    MAX_NN_FPFH = 150  # Mais features para matching
+    CONFIDENCE = 0.999  # Slightly lower confidence
+    MAX_ITERATION_RANSAC = 2000000  # Mais iterações
     EPSILON = 1e-6
-    MAX_ITERATION_ICP = 50
-    RANSAC_LOOP_SIZE = 5
+    MAX_ITERATION_ICP = 100  # Mais iterações ICP
+    RANSAC_LOOP_SIZE = 10  # Mais tentativas de RANSAC
   
   # Bucket point removal algorithm --------------------------------------------------------
   class BucketRemoval():
     THRESHOLD_DISTANCE = 20
-    NB_NEIGHBORS = 40
-    STD_RATIO = 1.0
-    NB_POINTS = 50
-    RADIUS = 250.0
+    NB_NEIGHBORS = 20       # Local o suficiente para formas complexas (density 8mm)
+    STD_RATIO = 5.0         # Menos agressivo: preserva vales/selas entre picos
+    NB_POINTS = 5           # Mínimo de vizinhos no raio (fácil satisfazer a 8mm)
+    RADIUS = 50.0           # ~6x densidade: elimina outliers reais sem erodir bordas
     DBSCAN_EPS = 49.619
     DBSCAN_MIN_SAMPLES = 7
 
@@ -25,11 +25,12 @@ class Parameters():
     RAY_CAST_ORIGIN_X = 11.5
     RAY_CAST_ORIGIN_Y = 1000
     RAY_CAST_ORIGIN_Z = -1800
-    SIMPLE_MESH_RADIUS = 100
-    SIMPLE_MESH_MAX_NN = 100
-    SIMPLE_MESH_K = 5
-    NB_NEIGHBORS = 10
-    STD_RATIO = 20
+    # Parâmetros otimizados para densidade uniforme 8mm (rampa + caçamba)
+    SIMPLE_MESH_RADIUS = 25  # ~3x densidade (24mm)
+    SIMPLE_MESH_MAX_NN = 60  # Mais vizinhos para densidade 8mm
+    SIMPLE_MESH_K = 15  # Orientação de normais estável
+    NB_NEIGHBORS = 20  # Filtro robusto para densidade 8mm
+    STD_RATIO = 12  # Ajustado para densidade uniforme
 
   class MergePointsLegacy():
     DISTANCE_THRESHOLD = 120 
@@ -40,5 +41,15 @@ class Parameters():
     STD_RATIO = 20
     
   class MeshReconstruction():
-    ALPHA = 150
-    N_FILTER_ITERATIONS = 5
+    ALPHA = 100  # Alpha Shapes: 80-120 (menor = mais detalhes, tenta fechar malha)
+    N_FILTER_ITERATIONS = 8  # Suavização: 5-10
+    # Parâmetros Poisson (método recomendado)
+    POISSON_DEPTH = 8   # depth=8 → ~12mm para caixa 3000mm, rápido com 40-60k pts
+    DENSITY_QUANTILE = 0.1  # Remove 10% de vértices de menor suporte → elimina balões em buracos/bordas
+
+  class VolumeCalculation():
+    # Tamanho da célula do grid para integração do mapa de alturas.
+    # Deve ser ~2× a densidade do scan: absorve ruído X/Y (±1.5mm com noise_level=3mm)
+    # evitando células vazias por colisão entre pontos adjacentes (8mm espaçamento).
+    # cell=8mm: ~16% erro; cell=15mm: ~2.4% erro; cell=20mm: ~1.6% erro.
+    HEIGHTMAP_CELL_SIZE = 15.0  # mm (≈2× scan density de 8mm)

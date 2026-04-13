@@ -108,11 +108,35 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_3.addWidget(self.btp_stopScan)
 
+        self.horizontalLayout_method = QHBoxLayout()
+        self.horizontalLayout_method.setObjectName(u"horizontalLayout_method")
+        self.lbl_method = QLabel(self.grb_operations)
+        self.lbl_method.setObjectName(u"lbl_method")
+
+        self.horizontalLayout_method.addWidget(self.lbl_method)
+
+        self.cmb_method = QComboBox(self.grb_operations)
+        self.cmb_method.addItem("")
+        self.cmb_method.addItem("")
+        self.cmb_method.setObjectName(u"cmb_method")
+
+        self.horizontalLayout_method.addWidget(self.cmb_method)
+
+
+        self.verticalLayout_3.addLayout(self.horizontalLayout_method)
+
         self.btp_processData = QPushButton(self.grb_operations)
         self.btp_processData.setObjectName(u"btp_processData")
         self.btp_processData.setEnabled(True)
 
         self.verticalLayout_3.addWidget(self.btp_processData)
+
+        self.btp_createSyntheticScan = QPushButton(self.grb_operations)
+        self.btp_createSyntheticScan.setObjectName(u"btp_createSyntheticScan")
+        self.btp_createSyntheticScan.setEnabled(True)
+        self.btp_createSyntheticScan.setStyleSheet(u"background-color: #4CAF50; color: white; font-weight: bold;")
+
+        self.verticalLayout_3.addWidget(self.btp_createSyntheticScan)
 
 
         self.verticalLayout.addWidget(self.grb_operations)
@@ -140,6 +164,11 @@ class Ui_MainWindow(object):
         self.grb_operations.setTitle(QCoreApplication.translate("MainWindow", u"Operations", None))
         self.btp_startScan.setText(QCoreApplication.translate("MainWindow", u"Start Scan", None))
         self.btp_stopScan.setText(QCoreApplication.translate("MainWindow", u"Stop Scan", None))
+        self.lbl_method.setText(QCoreApplication.translate("MainWindow", u"M\u00e9todo:", None))
+        self.cmb_method.setItemText(0, QCoreApplication.translate("MainWindow", u"Mapa de Alturas (novo)", None))
+        self.cmb_method.setItemText(1, QCoreApplication.translate("MainWindow", u"Poisson + Malha (legado)", None))
+
         self.btp_processData.setText(QCoreApplication.translate("MainWindow", u"Process Data", None))
+        self.btp_createSyntheticScan.setText(QCoreApplication.translate("MainWindow", u"Create Synthetic Scan", None))
     # retranslateUi
 
