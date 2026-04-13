@@ -1,0 +1,12 @@
+**/__pycache__/
+**/pointcloud/
+**/__init__/
+**/.vscode/
+**/target/
+**/.idea/
+**/venv/
+**/env/
+trash
+
+Cargo.lock
+.DS_Store
