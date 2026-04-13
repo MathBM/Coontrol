@@ -45,7 +45,7 @@ class ScanManager():
         if not addresses:
             return
 
-        self.rust_exec = Popen(["./rust/client_tcp.exe", output_folder] + addresses)
+        self.rust_exec = Popen(["./rust/target/release/client_tcp", output_folder] + addresses)
 
         print(self.sensor_front.start_scanoutput())
         print(self.sensor_right.start_scanoutput())
