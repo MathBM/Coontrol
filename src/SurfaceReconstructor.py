@@ -17,13 +17,16 @@ class SurfaceReconstructor():
 
   def dbscan_clustering(self, point_cloud, eps, min_samples):
       points = np.asarray(point_cloud.points)
+      if len(points) == 0:
+          return point_cloud
       clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
       labels = clustering.labels_
 
       # Identificar o maior cluster (ignorar outliers com label -1)
       unique_labels, counts = np.unique(labels[labels != -1], return_counts=True)
       if len(unique_labels) == 0:
-          return point_cloud
+          return o3d.geometry.PointCloud()
+          return point_cloud # old return
       largest_cluster_label = unique_labels[np.argmax(counts)]
 
       # Filtrar pontos do maior cluster
