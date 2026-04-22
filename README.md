@@ -28,5 +28,5 @@ cargo build --release
 
 Run application
 ```sh
-python main
+python main.py
 ```
