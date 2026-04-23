@@ -30,5 +30,5 @@ class Constants():
     BOUNDARIES_PROFILE_Y_MIN = -1000
     BOUNDARIES_PROFILE_Y_MAX = 1000
 
-    BOUNDARIES_ZAXIS_Y_MIN = -7000
-    BOUNDARIES_ZAXIS_Y_MAX = -100
+    BOUNDARIES_ZAXIS_Y_MIN = -500   # mm — frente da caçamba (entrando no portal)
+    BOUNDARIES_ZAXIS_Y_MAX = 500    # mm — traseira da caçamba (saindo do portal)
