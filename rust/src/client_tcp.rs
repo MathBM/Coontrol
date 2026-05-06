@@ -1,46 +1,89 @@
-use std::env::args;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::thread;
+// Uso: client_tcp <output_folder> <ip:porta> [<ip:porta> ...]
+//
+// O handshake HTTP (request_handle_tcp / start_scanoutput) é feito pelo
+// ScanManager em Python. Este binário apenas conecta nas portas TCP já
+// abertas e grava os dados brutos em <output_folder>/<ip>.bin.
 
-fn main() -> std::io::Result<()> {
-    let mut handles = Vec::new();
-    let arguments = args().collect::<Vec<String>>();
-    let output_path = arguments[1].clone();
-    let addresses = arguments[2..].to_vec();
+use std::env;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+use tokio::io::AsyncReadExt;
+use tokio::net::TcpStream;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 3 {
+        eprintln!("Uso: {} <output_folder> <ip:porta> [<ip:porta> ...]", args[0]);
+        eprintln!("Exemplo: {} ./pointcloud/scan/ 192.168.1.11:53509 192.168.1.12:42275", args[0]);
+        std::process::exit(1);
+    }
+
+    let output_folder = &args[1];
+    let addresses = &args[2..];
+
+    let mut tasks = Vec::new();
 
     for addr in addresses {
-        let ip = addr.split(":").collect::<Vec<&str>>()[0];
-        let file_path = format!("{output_path}{ip}.bin");
+        let addr = addr.clone();
+        let folder = output_folder.clone();
 
-        handles.push(thread::spawn(|| {
-            handle_connection(addr, file_path).unwrap_or_else(|err| println!("{err}"));
-        }));
+        let task = tokio::spawn(async move {
+            // Extrai o IP da string "ip:porta" para usar como nome de arquivo
+            let ip = addr.split(':').next().unwrap_or(&addr);
+            let file_path = Path::new(&folder).join(format!("{}.bin", ip));
+
+            let file = match File::create(&file_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("[{}] Erro ao criar arquivo {:?}: {}", addr, file_path, e);
+                    return;
+                }
+            };
+            let mut writer = BufWriter::new(file);
+
+            println!("[{}] Conectando...", addr);
+            let mut stream = match TcpStream::connect(&addr).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[{}] Erro ao conectar: {}", addr, e);
+                    return;
+                }
+            };
+            println!("[{}] Conectado. Gravando em {:?}", addr, file_path);
+
+            let mut buffer = [0u8; 8192];
+            loop {
+                match stream.read(&mut buffer).await {
+                    Ok(0) => {
+                        println!("[{}] Conexão encerrada pelo sensor.", addr);
+                        break;
+                    }
+                    Ok(n) => {
+                        if let Err(e) = writer.write_all(&buffer[..n]) {
+                            eprintln!("[{}] Erro ao gravar: {}", addr, e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[{}] Erro de leitura TCP: {}", addr, e);
+                        break;
+                    }
+                }
+            }
+
+            if let Err(e) = writer.flush() {
+                eprintln!("[{}] Erro ao fechar arquivo: {}", addr, e);
+            }
+        });
+
+        tasks.push(task);
     }
 
-    for handle in handles {
-        handle.join().unwrap_or_else(|err| println!("{err:?}"));
-    }
-
-    Ok(())
-}
-
-fn handle_connection(addr: String, file_path: String) -> std::io::Result<()> {
-    let mut client = TcpStream::connect(addr)?;
-
-    let mut file = File::create(file_path)?;
-    let mut buf = [0; 65536];
-
-    loop {
-        let num_bytes = client.read(&mut buf)?;
-
-        if num_bytes == 0 {
-            break;
-        }
-
-        file.write_all(&buf[..num_bytes])?;
-        file.sync_data()?;
+    for task in tasks {
+        let _ = task.await;
     }
 
     Ok(())

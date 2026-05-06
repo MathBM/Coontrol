@@ -45,6 +45,12 @@ print(f"{'#'*60}")
 
 # 1. CARREGAR DADOS
 print("\n[1] CARREGANDO DADOS...")
+if not os.path.isfile(f"{scan_path}data.npz"):
+    print(f"[INFO] data.npz não encontrado — reconstruindo a partir dos binários...")
+    from src.PointCloudReconstructor import PointCloudReconstructor
+    xyz_list = PointCloudReconstructor().create_point_cloud(scan_path)
+    np.savez_compressed(f"{scan_path}data.npz", xyz=xyz_list)
+    print(f"[INFO] data.npz gerado em {scan_path}")
 xyz_array = np.load(f"{scan_path}data.npz")["xyz"]
 xyz = o3d.geometry.PointCloud()
 xyz.points = o3d.utility.Vector3dVector(xyz_array)

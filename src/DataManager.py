@@ -39,7 +39,7 @@ class DataManager():
             xyz_list = self.pcd_reconstructor.create_point_cloud(scan_path)
             np.savez_compressed(f"{scan_path}data.npz", xyz=xyz_list)
             xyz = o3d.geometry.PointCloud()
-            xyz.points = o3d.utility.Vector3dVector(np.array(xyz_list))
+            xyz.points = o3d.utility.Vector3dVector(xyz_list)
 
         bucket_data_path = f"{Constants.BUCKET_PATH}/data.npz"
         if os.path.isfile(bucket_data_path):

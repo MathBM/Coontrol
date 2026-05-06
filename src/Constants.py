@@ -31,7 +31,9 @@ class Constants():
     BOUNDARIES_PROFILE_Y_MIN = -1000
     BOUNDARIES_PROFILE_Y_MAX = 1000
 
+
     BOUNDARIES_ZAXIS_X_MIN = -2300
     BOUNDARIES_ZAXIS_X_MAX = -400
-    BOUNDARIES_ZAXIS_Y_MIN = -7000
-    BOUNDARIES_ZAXIS_Y_MAX = -100
+
+    BOUNDARIES_ZAXIS_Y_MIN = 4000  # distância mínima do sensor para o chão/esteira (clip longe)
+    BOUNDARIES_ZAXIS_Y_MAX = 100   # distância máxima próxima ao sensor (clip perto, filtra ruído)

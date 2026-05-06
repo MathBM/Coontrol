@@ -3,6 +3,7 @@ from subprocess import Popen
 from src.Constants import Constants
 from src.SensorManager import SensorManager
 
+import os
 
 class ScanManager():
 
@@ -45,7 +46,9 @@ class ScanManager():
         if not addresses:
             return
 
-        self.rust_exec = Popen(["./rust/target/release/client_tcp", output_folder] + addresses)
+        os.makedirs(output_folder, exist_ok=True)
+        rust_bin = "./rust/target/release/client_tcp"
+        self.rust_exec = Popen([rust_bin, output_folder] + addresses)
 
         print(self.sensor_front.start_scanoutput())
         print(self.sensor_right.start_scanoutput())

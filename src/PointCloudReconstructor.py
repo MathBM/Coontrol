@@ -11,10 +11,10 @@ class PointCloudReconstructor():
 
     def create_point_cloud(self, scan_path: str):
         scans_front = self.process_binary_file(f"{scan_path}{Constants.SENSOR_FRONT_IP}.bin")
+
         scans_right = self.process_binary_file(f"{scan_path}{Constants.SENSOR_RIGHT_IP}.bin")
         scans_left = self.process_binary_file(f"{scan_path}{Constants.SENSOR_LEFT_IP}.bin")
         scans_top = self.process_binary_file(f"{scan_path}{Constants.SENSOR_TOP_IP}.bin")
-
 
         z_axis, _ = self.calculate_z_axis(
             scans_front,
@@ -67,6 +67,29 @@ class PointCloudReconstructor():
         xyz = self.transform(xyz, (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
 
         return xyz
+
+    def calculate_z_axis(self, scans_front: dict, x_min: int, x_max: int, y_min: int, y_max: int):
+        z_axis = {}
+        xyz_front = []
+
+        for i, scan_key in enumerate(sorted(scans_front.keys())):
+            # z_axis[i] = z_axis.get(i-1, y_min)
+            z_axis[i] = y_min
+
+            for xy in scans_front[scan_key]["xy"]:
+                x = xy[0]
+                y = xy[1]
+                z = i * 5
+
+                if x <= x_min or x >= x_max or y <= y_max or y >= y_min:
+                    continue
+
+                if y < z_axis[i]:
+                    z_axis[i] = y
+
+                xyz_front.append((x, y, z))
+
+        return z_axis, xyz_front
 
     def process_binary_file(self, file_path: str):
         file = open(file_path, "rb")
@@ -145,29 +168,6 @@ class PointCloudReconstructor():
             xy.append((x, y))
 
         return xy
-
-    def calculate_z_axis(self, scans_front: dict, x_min: int, x_max: int, y_min: int, y_max: int):
-        z_axis = {}
-        xyz_front = []
-
-        for i, scan_key in enumerate(sorted(scans_front.keys())):
-            # z_axis[i] = z_axis.get(i-1, y_min)
-            z_axis[i] = y_min
-
-            for xy in scans_front[scan_key]["xy"]:
-                x = xy[0]
-                y = xy[1]
-                z = i * 5
-
-                if x <= x_min or x >= x_max or y <= y_min or y >= y_max:
-                    continue
-
-                if y > z_axis[i]:
-                    z_axis[i] = y
-
-                xyz_front.append((x, y, z))
-
-        return z_axis, xyz_front
 
     def reconstruct_z_axis(self, scans: dict, z_axis: dict) -> list[tuple[int, int, int]]:
         xyz = list()
