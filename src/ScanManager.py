@@ -47,7 +47,8 @@ class ScanManager():
             return
 
         os.makedirs(output_folder, exist_ok=True)
-        self.rust_exec = Popen(["./rust/client_tcp.exe", output_folder] + addresses)
+        rust_bin = "./rust/target/release/client_tcp"
+        self.rust_exec = Popen([rust_bin, output_folder] + addresses)
 
         print(self.sensor_front.start_scanoutput())
         print(self.sensor_right.start_scanoutput())

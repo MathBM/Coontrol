@@ -11,10 +11,10 @@ class PointCloudReconstructor():
 
     def create_point_cloud(self, scan_path: str):
         scans_front = self.process_binary_file(f"{scan_path}{Constants.SENSOR_FRONT_IP}.bin")
+
         scans_right = self.process_binary_file(f"{scan_path}{Constants.SENSOR_RIGHT_IP}.bin")
         scans_left = self.process_binary_file(f"{scan_path}{Constants.SENSOR_LEFT_IP}.bin")
         scans_top = self.process_binary_file(f"{scan_path}{Constants.SENSOR_TOP_IP}.bin")
-
 
         z_axis, _ = self.calculate_z_axis(
             scans_front,
@@ -81,10 +81,10 @@ class PointCloudReconstructor():
                 y = xy[1]
                 z = i * 5
 
-                if x <= x_min or x >= x_max or y <= y_min or y >= y_max:
+                if x <= x_min or x >= x_max or y <= y_max or y >= y_min:
                     continue
 
-                if y > z_axis[i]:
+                if y < z_axis[i]:
                     z_axis[i] = y
 
                 xyz_front.append((x, y, z))

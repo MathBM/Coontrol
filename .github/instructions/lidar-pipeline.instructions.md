@@ -57,14 +57,16 @@ sm = SensorManager(sensor_ip="192.168.1.10", server_ip="192.168.1.50", server_po
 
 ### TCP Data Stream (Rust — `rust/src/client_tcp.rs`)
 
-Run once per sensor. Reads the raw binary PFSDP stream and saves it to disk:
+Compile once before use:
 
-```
-cargo run --release -- 192.168.1.10
-# saves sensor_192_168_1_10.bin
+```bash
+cd rust && cargo build --release
+# generates rust/target/release/client_tcp
 ```
 
-The main loop connects to `<sensor_ip>:<tcp_port>`, reads chunks with `tokio::io::AsyncReadExt`, and writes raw bytes with a `BufWriter<File>`.
+The binary is launched by `ScanManager.start_scan()` with the output folder and one `ip:port` address per sensor (ports returned by `request_handle_tcp`). It spawns one async Tokio task per sensor, connects to each TCP port, and writes raw bytes to `<output_folder>/<ip>.bin` using a `BufWriter<File>`. Terminates when the sensor closes the connection (after `stop_scanoutput` + `release_handle`).
+
+**Note:** `ScanManager` calls the binary as `./rust/client_tcp.exe` — on Linux the correct path is `./rust/target/release/client_tcp`.
 
 ---
 
