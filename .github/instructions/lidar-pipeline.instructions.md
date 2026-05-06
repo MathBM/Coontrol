@@ -66,7 +66,7 @@ cd rust && cargo build --release
 
 The binary is launched by `ScanManager.start_scan()` with the output folder and one `ip:port` address per sensor (ports returned by `request_handle_tcp`). It spawns one async Tokio task per sensor, connects to each TCP port, and writes raw bytes to `<output_folder>/<ip>.bin` using a `BufWriter<File>`. Terminates when the sensor closes the connection (after `stop_scanoutput` + `release_handle`).
 
-**Note:** `ScanManager` calls the binary as `./rust/client_tcp.exe` — on Linux the correct path is `./rust/target/release/client_tcp`.
+`ScanManager` calls the binary as `./rust/target/release/client_tcp` (correct Linux path).
 
 ---
 
@@ -93,7 +93,11 @@ Distance values follow after the header in the packet payload.
 
 `create_point_cloud(scan_path)` builds a merged 3D point cloud from the four `.bin` files:
 
-1. **Front sensor** → `calculate_z_axis()` — derives a tilt-correction Z-axis from the front scanner's profile (front sensor acts as reference, not merged into the final cloud)
+1. **Front sensor** → `calculate_z_axis()` — derives a per-scan Z reference from the front scanner's profile. For each scan the function finds the **minimum Y** (distance closest to the sensor) within the boundary window; this closest point corresponds to the top of the load or bucket rim. The front sensor acts as reference only and is **not** merged into the final cloud.
+   - Valid window: `BOUNDARIES_ZAXIS_Y_MAX (100 mm) < y < BOUNDARIES_ZAXIS_Y_MIN (4000 mm)`
+   - `Y_MIN = 4000` — far clip (floor/conveyor distance; points beyond are discarded)
+   - `Y_MAX = 100` — near clip (noise filter; points closer than 100 mm are discarded)
+   - Default z_axis value when no point is found in the window: `Y_MIN` (4000 mm)
 2. **Right + Left sensors** → `reconstruct_z_axis()` — converts 2D profile scans to 3D using the Z-axis reference, then applies rigid body transforms from `Constants` (translation + Euler rotation)
 3. **Top sensor** → `reconstruct_z_axis()` — top-down scan
 4. Boundary clipping via `remove_boundaries()` (X/Y limits in `Constants`)
@@ -182,4 +186,7 @@ volume_mm3 = dm.process_data("./pointcloud/2026-04-08_09h02min40s/")
 ## 10. Parameters and Constants
 
 - `src/Constants.py`: hardware-defined values (IPs, physical offsets, boundary limits). Modify here when sensors are repositioned.
+  - `BOUNDARIES_ZAXIS_Y_MIN` = far clip distance for the front sensor (floor/conveyor, default 4000 mm)
+  - `BOUNDARIES_ZAXIS_Y_MAX` = near clip distance for the front sensor (noise filter, default 100 mm)
+  - Valid detection window: `Y_MAX < y < Y_MIN`
 - `src/Parameters.py`: algorithm tuning (voxel size, RANSAC iterations, DBSCAN radius, heightmap cell size). Uses nested static classes, e.g., `Parameters.Registration.VOXEL_SIZE`.
