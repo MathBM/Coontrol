@@ -1,6 +1,8 @@
 """Debug do pipeline de processamento de volume"""
 import os
 import sys
+# Force X11 backend so Open3D/GLFW works under Wayland sessions (via XWayland)
+os.environ.setdefault("XDG_SESSION_TYPE", "x11")
 import numpy as np
 import open3d as o3d
 from src.Constants import Constants
