@@ -53,3 +53,4 @@ class Parameters():
     # evitando células vazias por colisão entre pontos adjacentes (8mm espaçamento).
     # cell=8mm: ~16% erro; cell=15mm: ~2.4% erro; cell=20mm: ~1.6% erro.
     HEIGHTMAP_CELL_SIZE = 15.0  # mm (≈2× scan density de 8mm)
+

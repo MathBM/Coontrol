@@ -112,6 +112,7 @@ visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]),
 # 3. ISOLAMENTO DA CARGA
 print("\n[3] ISOLANDO CARGA (removendo caçamba)...")
 surface_reconstructor = SurfaceReconstructor()
+print(f"[ISOLAMENTO] Usando parâmetros: NB_NEIGHBORS={Parameters.BucketRemoval.NB_NEIGHBORS}, STD_RATIO={Parameters.BucketRemoval.STD_RATIO}, NB_POINTS={Parameters.BucketRemoval.NB_POINTS}, RADIUS={Parameters.BucketRemoval.RADIUS}, THRESHOLD_DISTANCE={Parameters.BucketRemoval.THRESHOLD_DISTANCE}, DBSCAN_EPS={Parameters.BucketRemoval.DBSCAN_EPS}, DBSCAN_MIN_SAMPLES={Parameters.BucketRemoval.DBSCAN_MIN_SAMPLES}")
 load_pcd = surface_reconstructor.isolate_load_points(
     truck_bucket, aligned_pcd,
     Parameters.BucketRemoval.NB_NEIGHBORS,
