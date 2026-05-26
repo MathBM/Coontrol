@@ -1,0 +1,30 @@
+{
+    "name": "Container Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "workbench.panel.defaultLocation": "right"
+            },
+            "extensions": []
+        }
+    },
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+    "runArgs": [
+        "--privileged",
+        "-v", "/tmp/.X11-unix:/tmp/.X11-unix:ro"
+    ],
+    "containerEnv": {
+        "GIT_SSH_COMMAND": "ssh -o ControlMaster=auto -o ControlPersist=60s",
+        "DISPLAY": "${localEnv:DISPLAY}",
+        "QT_DEBUG_PLUGINS": "1"
+    },
+    "mounts": [
+        "source=${localEnv:HOME}/.ssh/known_hosts,target=/home/vscode/.ssh/known_hosts,type=bind,readonly"
+    ],
+    "remoteUser": "vscode"
+}
