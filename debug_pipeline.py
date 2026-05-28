@@ -30,8 +30,9 @@ def print_stats(name, pcd):
         print("❌ VAZIO!")
 
 def visualize_step(pcds, window_name):
-    """Visualiza nuvens de pontos"""
-    o3d.visualization.draw_geometries(pcds, window_name=window_name)
+    """Visualiza nuvens de pontos com eixos de referência (X=vermelho, Y=verde, Z=azul)"""
+    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=200, origin=[0, 0, 0])
+    o3d.visualization.draw_geometries(pcds + [axis], window_name=window_name)
 
 if len(sys.argv) < 2:
     print("Uso: python debug_pipeline.py <pasta_scan>")
@@ -56,7 +57,7 @@ if not os.path.isfile(f"{scan_path}data.npz"):
 xyz_array = np.load(f"{scan_path}data.npz")["xyz"]
 xyz = o3d.geometry.PointCloud()
 xyz.points = o3d.utility.Vector3dVector(xyz_array)
-print_stats("RAMPA (xyz)", xyz)
+print_stats("SCAN (xyz)", xyz)
 
 bucket_array = np.load(f"{Constants.BUCKET_PATH}/data.npz")["xyz"]
 truck_bucket = o3d.geometry.PointCloud()
@@ -66,7 +67,7 @@ print_stats("CAÇAMBA (truck_bucket)", truck_bucket)
 # Visualizar dados originais
 visualize_step([xyz.paint_uniform_color([1, 0, 0]), 
                 truck_bucket.paint_uniform_color([0, 1, 0])], 
-               "1. Dados Originais: Rampa (vermelho) + Caçamba (verde)")
+               "1. Dados Originais: Scan (vermelho) + Caçamba (verde) | Eixos: X=R G=Y B=Z")
 
 # 2. ALINHAMENTO
 print("\n[2] ALINHAMENTO...")
@@ -103,7 +104,7 @@ else:
         Parameters.Registration.RANSAC_LOOP_SIZE
     )
 
-print_stats("RAMPA ALINHADA (aligned_pcd)", aligned_pcd)
+print_stats("SCAN ALINHADO (aligned_pcd)", aligned_pcd)
 
 visualize_step([aligned_pcd.paint_uniform_color([1, 0, 0]), 
                  truck_bucket.paint_uniform_color([0, 1, 0])], 
