@@ -189,8 +189,8 @@ class SurfaceReconstructor():
     pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
     
     return pcd
-  
-  def merge_load_and_bucket_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
+
+  def merge_load_and_bucket_points_alternative(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
                                    ray_cast_origin_x: float, ray_cast_origin_y: float, ray_cast_origin_z: float,
                                    simple_mesh_radius: int, simple_mesh_max_nn: int, simple_mesh_k: int, 
                                    nb_neighbors: int, std_ratio: float) -> o3d.geometry.PointCloud:  
@@ -245,6 +245,74 @@ class SurfaceReconstructor():
 
     print(f"[MERGE DEBUG] Merge finalizado com sucesso!")
     return pcd
+  
+  def merge_load_and_bucket_points(self, bucket: o3d.geometry.PointCloud, load: o3d.geometry.PointCloud,
+                                   ray_cast_origin_x: float, ray_cast_origin_y: float, ray_cast_origin_z: float,
+                                   simple_mesh_radius: int, simple_mesh_max_nn: int, simple_mesh_k: int,
+                                   nb_neighbors: int, std_ratio: float) -> o3d.geometry.PointCloud:
+    # Abordagem: mapa de altura 2D (height map) no plano horizontal X×Z.
+    # Y é o eixo vertical (verde = cima): carga escaneada tem Y alto;
+    # paredes e fundo da caçamba têm Y mais baixo (abaixo da superfície da carga).
+    # Para cada célula (x, z) do plano horizontal, armazenamos o Y mínimo da carga
+    # (base inferior da superfície escaneada). Selecionamos pontos da caçamba onde
+    # y_bucket < y_load_min na mesma célula — i.e., estão abaixo da carga.
+    load_pts = np.asarray(load.points)
+    bucket_pts = np.asarray(bucket.points)
+
+    cell_size = 30.0  # mm — resolução do mapa no plano XZ
+
+    x_min = load_pts[:, 0].min()
+    z_min = load_pts[:, 2].min()
+    x_max = load_pts[:, 0].max()
+    z_max = load_pts[:, 2].max()
+    nx = int((x_max - x_min) / cell_size) + 2
+    nz = int((z_max - z_min) / cell_size) + 2
+
+    # Constrói mapa de Y mínimo da carga sobre o plano XZ
+    # (Y mín = base inferior da superfície escaneada)
+    height_map = np.full((nx, nz), np.inf)
+    lxi = ((load_pts[:, 0] - x_min) / cell_size).astype(int).clip(0, nx - 1)
+    lzi = ((load_pts[:, 2] - z_min) / cell_size).astype(int).clip(0, nz - 1)
+    np.minimum.at(height_map, (lxi, lzi), load_pts[:, 1])
+    valid_cells = np.sum(height_map < np.inf)
+    print(f"[MERGE] Height map {nx}x{nz} (plano XZ), {valid_cells} células com carga")
+
+    # Filtra bucket ao footprint XZ da carga com margem
+    MARGIN = 200.0
+    xz_mask = (
+        (bucket_pts[:, 0] >= x_min - MARGIN) & (bucket_pts[:, 0] <= x_max + MARGIN) &
+        (bucket_pts[:, 2] >= z_min - MARGIN) & (bucket_pts[:, 2] <= z_max + MARGIN)
+    )
+    bucket_pts = bucket_pts[xz_mask]
+    print(f"[MERGE] bucket filtrado ao footprint XZ: {len(bucket_pts)} / {len(np.asarray(bucket.points))} pontos")
+
+    if len(bucket_pts) == 0:
+        print("[MERGE] ⚠ Nenhum ponto da caçamba na região da carga — retornando apenas carga.")
+        return load
+
+    bxi = ((bucket_pts[:, 0] - x_min) / cell_size).astype(int).clip(0, nx - 1)
+    bzi = ((bucket_pts[:, 2] - z_min) / cell_size).astype(int).clip(0, nz - 1)
+    load_y_min_at_bucket = height_map[bxi, bzi]
+
+    # Seleciona pontos da caçamba abaixo da superfície da carga (paredes + fundo)
+    # y_bucket < y_load_min → ponto está verticalmente abaixo da carga escaneada
+    points_to_select = (load_y_min_at_bucket < np.inf) & (bucket_pts[:, 1] < load_y_min_at_bucket)
+    selected_bucket_pts = bucket_pts[points_to_select]
+    print(f"[MERGE] Pontos da caçamba selecionados: {len(selected_bucket_pts)}")
+
+    if len(selected_bucket_pts) == 0:
+        print("[MERGE] ⚠ Nenhum ponto selecionado — retornando apenas carga.")
+        return load
+
+    points_combined = np.vstack([load_pts, selected_bucket_pts])
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points_combined)
+    pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    print(f"[MERGE] Resultado final: {len(pcd.points)} pontos")
+
+    return pcd
+
+
 
   def reconstruct_load_mesh_legacy(self, load: o3d.geometry.PointCloud, alpha: float,
                             n_filter_iterations: int) -> o3d.geometry.TriangleMesh:
