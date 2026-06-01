@@ -7,6 +7,7 @@
 **/target/
 **/.idea/
 **/venv/
+**/.venv/
 **/env/
 **/rust/target
 trash
