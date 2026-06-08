@@ -1,3 +1,5 @@
+import bisect
+
 import numpy as np
 import open3d as o3d
 from math import cos, sin, pi
@@ -16,7 +18,7 @@ class PointCloudReconstructor():
         scans_left = self.process_binary_file(f"{scan_path}{Constants.SENSOR_LEFT_IP}.bin")
         scans_top = self.process_binary_file(f"{scan_path}{Constants.SENSOR_TOP_IP}.bin")
 
-        z_axis, _ = self.calculate_z_axis(
+        z_axis, _, front_timestamps = self.calculate_z_axis(
             scans_front,
             Constants.BOUNDARIES_ZAXIS_X_MIN,
             Constants.BOUNDARIES_ZAXIS_X_MAX,
@@ -24,12 +26,13 @@ class PointCloudReconstructor():
             Constants.BOUNDARIES_ZAXIS_Y_MAX,
         )
 
-        xyz_right = self.reconstruct_z_axis(scans_right, z_axis)
-        xyz_left = self.reconstruct_z_axis(scans_left, z_axis)
-        xyz_top = self.reconstruct_z_axis(scans_top, z_axis)
+        xyz_right = self.reconstruct_z_axis(scans_right, z_axis, front_timestamps)
+        xyz_left = self.reconstruct_z_axis(scans_left, z_axis, front_timestamps)
+        xyz_top = self.reconstruct_z_axis(scans_top, z_axis, front_timestamps)
 
         xyz_right = self.transform(xyz_right, Constants.SENSOR_RIGHT_ROTATION, Constants.SENSOR_RIGHT_TRANSLATION)
         xyz_left = self.transform(xyz_left, Constants.SENSOR_LEFT_ROTATION, Constants.SENSOR_LEFT_TRANSLATION)
+        xyz_top = self.transform(xyz_top, (0, 0, 0), (0, 0, Constants.SENSOR_TOP_Z_OFFSET))
 
         xyz_right = self.remove_boundaries(
             xyz_right,
@@ -59,22 +62,28 @@ class PointCloudReconstructor():
         xyz_left = self.filter_point_cloud(xyz_left, 40, 0.1, 25, 50)
         xyz_top = self.filter_point_cloud(xyz_top, 60, 0.06, 25, 120)
 
+        # Transformação global: rotação -90° em Z + translação em Y (altura do sensor top)
+        # O X_OFFSET do top é aplicado aqui, após a rotação, para mover no eixo X visual correto
+        xyz_right = self.transform(xyz_right, (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
+        xyz_left  = self.transform(xyz_left,  (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
+        xyz_top   = self.transform(xyz_top,   (0, 0, -pi/2), (Constants.SENSOR_TOP_X_OFFSET, Constants.SENSOR_TOP_HEIGHT, 0))
+
         xyz = list()
         xyz.extend(xyz_right)
         xyz.extend(xyz_left)
         xyz.extend(xyz_top)
-
-        xyz = self.transform(xyz, (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
 
         return xyz
 
     def calculate_z_axis(self, scans_front: dict, x_min: int, x_max: int, y_min: int, y_max: int):
         z_axis = {}
         xyz_front = []
+        front_timestamps = {}  # i -> timestamp do scan frontal
 
         for i, scan_key in enumerate(sorted(scans_front.keys())):
             # z_axis[i] = z_axis.get(i-1, y_min)
             z_axis[i] = y_min
+            front_timestamps[i] = scans_front[scan_key]["timestamp"]
 
             for xy in scans_front[scan_key]["xy"]:
                 x = xy[0]
@@ -89,7 +98,7 @@ class PointCloudReconstructor():
 
                 xyz_front.append((x, y, z))
 
-        return z_axis, xyz_front
+        return z_axis, xyz_front, front_timestamps
 
     def process_binary_file(self, file_path: str):
         file = open(file_path, "rb")
@@ -169,17 +178,52 @@ class PointCloudReconstructor():
 
         return xy
 
-    def reconstruct_z_axis(self, scans: dict, z_axis: dict) -> list[tuple[int, int, int]]:
+    def reconstruct_z_axis(self, scans: dict, z_axis: dict, front_timestamps: dict = None) -> list[tuple[int, int, int]]:
         xyz = list()
 
-        for key in zip(sorted(scans.keys()), sorted(z_axis.keys())):
+        sorted_scan_keys = sorted(scans.keys())
 
-            for xy in scans[key[0]]["xy"]:
-                x = xy[0]
-                y = xy[1]
-                z = z_axis[key[1]]
+        if front_timestamps is None:
+            for key in zip(sorted_scan_keys, sorted(z_axis.keys())):
+                for xy in scans[key[0]]["xy"]:
+                    xyz.append((xy[0], xy[1], z_axis[key[1]]))
+            return xyz
 
-                xyz.append((x, y, z))
+        sorted_indices = sorted(front_timestamps.keys(), key=lambda k: front_timestamps[k])
+        sorted_ts = [front_timestamps[k] for k in sorted_indices]
+        ts_front_start = sorted_ts[0]
+        ts_front_end = sorted_ts[-1]
+
+        # Se o primeiro timestamp do sensor estiver mais de 2 s afastado do front,
+        # os relógios não estão sincronizados — usa alinhamento sequencial
+        ts_sensor_start = scans[sorted_scan_keys[0]]["timestamp"]
+        if abs(ts_sensor_start - ts_front_start) > 2.0:
+            for key in zip(sorted_scan_keys, sorted_indices):
+                for xy in scans[key[0]]["xy"]:
+                    xyz.append((xy[0], xy[1], z_axis[key[1]]))
+            return xyz
+
+        # Alinha pelo timestamp mais próximo do sensor frontal (relógios sincronizados)
+        for scan_key in sorted_scan_keys:
+            ts = scans[scan_key]["timestamp"]
+
+            # Descarta scans fora do intervalo de tempo do sensor frontal
+            if ts < ts_front_start or ts > ts_front_end:
+                continue
+
+            pos = bisect.bisect_left(sorted_ts, ts)
+            if pos == 0:
+                z_idx = sorted_indices[0]
+            elif pos >= len(sorted_ts):
+                z_idx = sorted_indices[-1]
+            else:
+                if abs(sorted_ts[pos] - ts) < abs(sorted_ts[pos - 1] - ts):
+                    z_idx = sorted_indices[pos]
+                else:
+                    z_idx = sorted_indices[pos - 1]
+
+            for xy in scans[scan_key]["xy"]:
+                xyz.append((xy[0], xy[1], z_axis[z_idx]))
 
         return xyz
 
