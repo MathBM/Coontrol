@@ -92,14 +92,18 @@ class Registration():
 
       result_icp = self.icp_registration(load, bucket, result_ransac.transformation, voxel_size, 'generalized', epsilon, max_iteration_icp)
       
-      icp_t = result_icp.transformation
+      transformation = np.array(result_icp.transformation)
 
-      # Manter translação em Z (movimento do caminhão) e X (deriva lateral entre paradas).
-      # Y (altura) é cancelado — o caminhão não sobe/desce entre scans.
-      # Rotações do ICP são descartadas (artefato do algoritmo).
-      transformation = np.eye(4)
-      transformation[0][3] = icp_t[0][3]  # translação X (deriva lateral do caminhão)
-      transformation[2][3] = icp_t[2][3]  # translação Z (sentido de movimento do caminhão)
+      # Cancel x rotation
+      transformation[1][0] = 0
+      transformation[2][0] = 0
+      transformation[2][1] = 0
+      transformation[1][2] = 0
+      transformation[1][1] = 1
+      transformation[2][2] = 1
+
+      # Cancel y translation
+      transformation[1][3] = 0
       
       aligned = copy.deepcopy(load)
       aligned.transform(transformation)

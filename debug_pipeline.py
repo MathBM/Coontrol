@@ -32,8 +32,8 @@ def print_stats(name, pcd):
 def visualize_step(pcds, window_name):
     """Visualiza nuvens de pontos com eixos de referência (X=vermelho, Y=verde, Z=azul)"""
     axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=200, origin=[0, 0, 0])
-    o3d.visualization.draw_geometries(pcds + [axis], window_name=window_name)
-    #o3d.visualization.draw_geometries(pcds, window_name=window_name)
+    #o3d.visualization.draw_geometries(pcds + [axis], window_name=window_name)
+    o3d.visualization.draw_geometries(pcds, window_name=window_name)
 
 
 if len(sys.argv) < 2:
