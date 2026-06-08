@@ -1,3 +1,5 @@
+.env
+
 **/__pycache__/
 **/pointcloud/
 **/__init__/
@@ -5,6 +7,7 @@
 **/target/
 **/.idea/
 **/venv/
+**/.venv/
 **/env/
 **/rust/target
 trash

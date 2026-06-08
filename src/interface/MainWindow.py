@@ -1,13 +1,17 @@
 import os
 from datetime import datetime
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog
+from PySide6.QtWidgets import QMainWindow, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QPushButton, QMessageBox
 
 from src.ScanManager import ScanManager
 from src.DataManager import DataManager
 from src.Constants import Constants
 from src.interface.MainWindow_ui import Ui_MainWindow
 from src.SyntheticScanCreator import SyntheticScanCreator
+
+import os
+import shutil
+from datetime import datetime
 
 
 class MainWindow(QMainWindow):
@@ -29,6 +33,10 @@ class MainWindow(QMainWindow):
         self.ui.btp_startScan.clicked.connect(self.start_scan)
         self.ui.btp_stopScan.clicked.connect(self.stop_scan)
         self.ui.btp_createSyntheticScan.clicked.connect(self.create_synthetic_scan)
+
+        self.ui.btp_setEmptyBucket = QPushButton("Definir como Caixa Vazia")
+        self.ui.verticalLayout_3.addWidget(self.ui.btp_setEmptyBucket)
+        self.ui.btp_setEmptyBucket.clicked.connect(self.set_empty_bucket)
 
         # setup
         self.ui.tbw_scans.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -161,3 +169,47 @@ class MainWindow(QMainWindow):
                     "Error",
                     f"Failed to create synthetic scan:\n{str(e)}"
                 )
+    def set_empty_bucket(self):
+        row_selected = self.ui.tbw_scans.selectedIndexes()
+
+        if not row_selected:
+            QMessageBox.warning(self, "Aviso", "Selecione um scan na tabela para definir como caixa vazia.")
+            return
+
+        row_index = row_selected[0].row()
+        scan_folder = self.scanList[row_index]
+        
+        # Evita tentar renomear a pasta para ela mesma
+        if scan_folder == os.path.basename(Constants.BUCKET_PATH):
+            QMessageBox.information(self, "Info", "Este scan já é a caixa de referência.")
+            return
+
+        src_path = os.path.join(Constants.SCANS_DIRECTORY, scan_folder)
+        dst_path = Constants.BUCKET_PATH
+
+        try:
+            backup_msg = ""
+            
+            # Preserva a caixa_vazia atual renomeando-a sequencialmente
+            if os.path.exists(dst_path):
+                base_dir = os.path.dirname(dst_path)
+                base_name = os.path.basename(dst_path)
+                
+                counter = 1
+                backup_path = os.path.join(base_dir, f"{base_name}_{counter}")
+                
+                while os.path.exists(backup_path):
+                    counter += 1
+                    backup_path = os.path.join(base_dir, f"{base_name}_{counter}")
+                
+                os.rename(dst_path, backup_path)
+                backup_msg = f"\nA referência anterior foi preservada como '{os.path.basename(backup_path)}'."
+            
+            # Renomeia a pasta selecionada para o caminho padrão
+            os.rename(src_path, dst_path)
+            
+            QMessageBox.information(self, "Sucesso", f"O scan '{scan_folder}' foi definido como a nova caixa de referência.{backup_msg}")
+            self.refresh_table()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao redefinir a caixa vazia:\n{str(e)}")
