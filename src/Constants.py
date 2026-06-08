@@ -25,6 +25,8 @@ class Constants():
     # Euler angles [x, y, z]
     SENSOR_RIGHT_ROTATION = (0, 0, 0)
     SENSOR_LEFT_ROTATION = (0, 0, 0)
+    SENSOR_TOP_Z_OFFSET = 300  # ajuste fino de posição Z do sensor top (mm); positivo = avança, negativo = recua
+    SENSOR_TOP_X_OFFSET = -50   # ajuste fino de posição X do sensor top (mm); positivo = desloca para direita, negativo = para esquerda
 
     BOUNDARIES_PROFILE_X_MIN = 100
     BOUNDARIES_PROFILE_X_MAX = 2385
