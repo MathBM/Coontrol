@@ -32,7 +32,9 @@ def print_stats(name, pcd):
 def visualize_step(pcds, window_name):
     """Visualiza nuvens de pontos com eixos de referência (X=vermelho, Y=verde, Z=azul)"""
     axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=200, origin=[0, 0, 0])
-    o3d.visualization.draw_geometries(pcds + [axis], window_name=window_name)
+    #o3d.visualization.draw_geometries(pcds + [axis], window_name=window_name)
+    o3d.visualization.draw_geometries(pcds, window_name=window_name)
+
 
 if len(sys.argv) < 2:
     print("Uso: python debug_pipeline.py <pasta_scan>")
@@ -54,11 +56,18 @@ if not os.path.isfile(f"{scan_path}data.npz"):
     xyz_list = PointCloudReconstructor().create_point_cloud(scan_path)
     np.savez_compressed(f"{scan_path}data.npz", xyz=xyz_list)
     print(f"[INFO] data.npz gerado em {scan_path}")
+    
 xyz_array = np.load(f"{scan_path}data.npz")["xyz"]
 xyz = o3d.geometry.PointCloud()
 xyz.points = o3d.utility.Vector3dVector(xyz_array)
 print_stats("SCAN (xyz)", xyz)
 
+if not os.path.isfile(f"{Constants.BUCKET_PATH}/data.npz"):
+    print(f"[INFO] data.npz da caçamba não encontrado — reconstruindo a partir dos binários...")
+    from src.PointCloudReconstructor import PointCloudReconstructor
+    bucket_list = PointCloudReconstructor().create_point_cloud(Constants.BUCKET_PATH+"/")
+    np.savez_compressed(f"{Constants.BUCKET_PATH}/data.npz", xyz=bucket_list)
+    print(f"[INFO] data.npz da caçamba gerado em {Constants.BUCKET_PATH}")
 bucket_array = np.load(f"{Constants.BUCKET_PATH}/data.npz")["xyz"]
 truck_bucket = o3d.geometry.PointCloud()
 truck_bucket.points = o3d.utility.Vector3dVector(bucket_array)
@@ -150,11 +159,11 @@ print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 visualize_step([full_pcd], "4. Após Merge")
 
 # 5. RECONSTRUÇÃO DA MALHA (visualização — não é usada para calcular volume)
-print("\n[5] RECONSTRUÇÃO DA MALHA (Poisson — apenas visualização)...")
-load_mesh = surface_reconstructor.reconstruct_load_mesh_poisson(
+print("\n[5] RECONSTRUÇÃO DA MALHA (Alpha Shapes legacy — apenas visualização)...")
+load_mesh = surface_reconstructor.reconstruct_load_mesh_legacy(
     full_pcd,
-    depth=Parameters.MeshReconstruction.POISSON_DEPTH,
-    density_quantile=Parameters.MeshReconstruction.DENSITY_QUANTILE
+    alpha=Parameters.MeshReconstruction.ALPHA,
+    n_filter_iterations=Parameters.MeshReconstruction.N_FILTER_ITERATIONS
 )
 
 print(f"Vértices: {len(load_mesh.vertices)}")
