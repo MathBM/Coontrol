@@ -175,15 +175,23 @@ if not load_mesh.is_watertight():
 
 visualize_step([load_mesh], "5. Malha Reconstruída (visualização)")
 
-# 6. CÁLCULO DO VOLUME — via mapa de alturas 2D sobre load_pcd
-# V = ∑ z_max(x,y) × Δx × Δy  (integra a superfície escaneada acima de z=0)
-# Robusto a buracos e malhas abertas: células sem dado contribuem z=0.
-print("\n[6] CÁLCULO DO VOLUME (mapa de alturas)...")
+# 6. CÁLCULO DO VOLUME
+# Método primário: volume_calculation (teorema da divergência sobre malha fechada).
+# Requer malha watertight gerada na etapa 5 a partir do full_pcd (carga + piso da caçamba).
+# Fallback: volume_from_heightmap, robusto a buracos — usado se a malha não fechar.
+print("\n[6] CÁLCULO DO VOLUME...")
 volume_calculator = VolumeCalculator()
-volume_mm3 = volume_calculator.volume_from_heightmap(
-    load_pcd,
-    cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE
-)
+
+if load_mesh.is_watertight():
+    print("[VOLUME] Malha watertight — usando volume_calculation (teorema da divergência)")
+    volume_mm3 = volume_calculator.volume_calculation(load_mesh)
+else:
+    print("[VOLUME] Malha aberta — usando volume_from_heightmap como fallback")
+    volume_mm3 = volume_calculator.volume_from_heightmap(
+        load_pcd,
+        cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE
+    )
+
 volume_m3 = volume_mm3 / 1_000_000_000
 
 # Volume esperado depende do tipo (lido do SYNTHETIC_INFO.txt se disponível)
