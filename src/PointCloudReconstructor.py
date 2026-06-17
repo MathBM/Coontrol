@@ -1,5 +1,5 @@
+import os
 import bisect
-
 import numpy as np
 import open3d as o3d
 from math import cos, sin, pi
@@ -8,15 +8,13 @@ from struct import pack, unpack
 from src.Constants import Constants
 
 
-
 class PointCloudReconstructor():
 
     def create_point_cloud(self, scan_path: str):
-        scans_front = self.process_binary_file(f"{scan_path}{Constants.SENSOR_FRONT_IP}.bin")
-
-        scans_right = self.process_binary_file(f"{scan_path}{Constants.SENSOR_RIGHT_IP}.bin")
-        scans_left = self.process_binary_file(f"{scan_path}{Constants.SENSOR_LEFT_IP}.bin")
-        scans_top = self.process_binary_file(f"{scan_path}{Constants.SENSOR_TOP_IP}.bin")
+        scans_front = self.process_binary_file(os.path.join(scan_path, f"{Constants.SENSOR_FRONT_IP}.bin"))
+        scans_right = self.process_binary_file(os.path.join(scan_path, f"{Constants.SENSOR_RIGHT_IP}.bin"))
+        scans_left = self.process_binary_file(os.path.join(scan_path, f"{Constants.SENSOR_LEFT_IP}.bin"))
+        scans_top = self.process_binary_file(os.path.join(scan_path, f"{Constants.SENSOR_TOP_IP}.bin"))
 
         z_axis, _, front_timestamps = self.calculate_z_axis(
             scans_front,
@@ -251,4 +249,3 @@ class PointCloudReconstructor():
         xyz_2, _ = xyz_1.remove_radius_outlier(nb_points=nb_points, radius=radius)
 
         return np.asarray(xyz_2.points)
-
