@@ -6,6 +6,7 @@ from math import cos, sin, pi
 from struct import pack, unpack
 
 from src.Constants import Constants
+from src.Parameters import Parameters
 
 
 
@@ -67,6 +68,12 @@ class PointCloudReconstructor():
         xyz_right = self.transform(xyz_right, (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
         xyz_left  = self.transform(xyz_left,  (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
         xyz_top   = self.transform(xyz_top,   (0, 0, -pi/2), (Constants.SENSOR_TOP_X_OFFSET, Constants.SENSOR_TOP_HEIGHT, 0))
+
+        # Clip em coordenadas mundiais: remove paredes/teto do galpão que ficaram fora da caçamba
+        p = Parameters.Registration
+        xyz_right = self.remove_boundaries(xyz_right, p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
+        xyz_left  = self.remove_boundaries(xyz_left,  p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
+        xyz_top   = self.remove_boundaries(xyz_top,   p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
 
         xyz = list()
         xyz.extend(xyz_right)

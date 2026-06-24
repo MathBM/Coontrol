@@ -320,52 +320,8 @@ class SurfaceReconstructor():
     bbox = load.get_axis_aligned_bounding_box()
     mesh = mesh.crop(bbox)
     mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
-
-    # Fechar buracos nas faces frontal e traseira (eixo Z).
-    # Os sensores não capturam as extremidades do caminhão, então Alpha Shapes
-    # deixa buracos em Z_min e Z_max. Adicionamos tampas planas trianguladas
-    # projetando os perfis de borda no plano XY — apenas para visualização.
-    pts = np.asarray(load.points)
-    z_min, z_max = pts[:, 2].min(), pts[:, 2].max()
-    z_range = z_max - z_min
-    SLICE_THICKNESS = z_range * 0.03  # 3% do range Z para coletar pontos da borda
-
-    for z_edge in [z_min, z_max]:
-        mask = np.abs(pts[:, 2] - z_edge) <= SLICE_THICKNESS
-        border_pts = pts[mask]
-        if len(border_pts) < 3:
-            continue
-
-        # Projeta no plano XY e cria hull 2D para a tampa
-        xy = border_pts[:, :2]
-        from scipy.spatial import ConvexHull
-        try:
-            hull = ConvexHull(xy)
-        except Exception:
-            continue
-
-        hull_xy = xy[hull.vertices]
-        centroid_xy = hull_xy.mean(axis=0)
-        cap_verts_3d = np.column_stack([hull_xy, np.full(len(hull_xy), z_edge)])
-        center_3d = np.array([centroid_xy[0], centroid_xy[1], z_edge])
-        all_verts = np.vstack([cap_verts_3d, center_3d])
-
-        n_hull = len(hull_xy)
-        center_idx = n_hull
-        cap_tris = np.array([[i, (i + 1) % n_hull, center_idx] for i in range(n_hull)])
-
-        # Garantir normal apontando para fora (−Z para borda frontal, +Z para traseira)
-        if z_edge == z_min:
-            cap_tris = cap_tris[:, [0, 2, 1]]
-
-        cap_mesh = o3d.geometry.TriangleMesh()
-        cap_mesh.vertices = o3d.utility.Vector3dVector(all_verts)
-        cap_mesh.triangles = o3d.utility.Vector3iVector(cap_tris)
-        mesh = mesh + cap_mesh
-
     mesh.paint_uniform_color([0.7, 0.7, 0.7])
     mesh.compute_triangle_normals()
-
     return mesh
 
     
