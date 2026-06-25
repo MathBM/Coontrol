@@ -6,8 +6,8 @@ class Constants():
     SERVER_PORT = 6969          # Não necessário quando usado handle TCP
 
     SENSOR_FRONT_IP = "192.168.1.10"
-    SENSOR_RIGHT_IP = "192.168.1.12"
-    SENSOR_LEFT_IP = "192.168.1.11"
+    SENSOR_RIGHT_IP = "192.168.1.11"
+    SENSOR_LEFT_IP = "192.168.1.12"
     SENSOR_TOP_IP = "192.168.1.13"
 
     # Scans -------------------------------------------------------------------
