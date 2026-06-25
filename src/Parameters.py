@@ -15,7 +15,7 @@ class Parameters():
     CROP_X_MIN = -1150  # mm — exclui parede lateral esquerda do galpão
     CROP_X_MAX =  1150  # mm — exclui parede lateral direita do galpão
     CROP_Y_MIN =  300   # mm — exclui piso do galpão abaixo da caçamba
-    CROP_Y_MAX =  1600  # mm — exclui teto do galpão (sensor top está em 2400mm)
+    CROP_Y_MAX =  1100  # mm — exclui teto do galpão (sensor top está em 2400mm)
   
   # Bucket point removal algorithm --------------------------------------------------------
   class BucketRemoval():
