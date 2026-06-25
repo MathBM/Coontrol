@@ -1,14 +1,21 @@
 class Parameters():
   # Registration algorithm ----------------------------------------------------------------
   class Registration():
-    VOXEL_SIZE = 50          # ~4× mediana NN real (7.6mm): captura geometria macroscópica das paredes da caçamba para RANSAC
+    VOXEL_SIZE = 30          # ~4× mediana NN (7.6mm): 30mm → normal_radius=60mm, feature_radius=150mm; melhora discriminação Z em paredes repetitivas
     MAX_NN_NORMALS = 40
     MAX_NN_FPFH = 150
     CONFIDENCE = 0.999
-    MAX_ITERATION_RANSAC = 2000000
+    MAX_ITERATION_RANSAC = 4000000
     EPSILON = 1e-6
-    MAX_ITERATION_ICP = 100
-    RANSAC_LOOP_SIZE = 10
+    MAX_ITERATION_ICP = 200
+    RANSAC_LOOP_SIZE = 30    # mais tentativas estocásticas para escapar do mínimo local identidade
+    # Limites absolutos de coordenadas para pré-processamento do RANSAC
+    # Descarta paredes/teto do galpão antes de calcular features FPFH.
+    # Baseado nas posições dos sensores (SENSOR_*_TRANSLATION ≈ ±1130mm em X; SENSOR_TOP_HEIGHT=2400mm em Y).
+    CROP_X_MIN = -1150  # mm — exclui parede lateral esquerda do galpão
+    CROP_X_MAX =  1150  # mm — exclui parede lateral direita do galpão
+    CROP_Y_MIN =  300   # mm — exclui piso do galpão abaixo da caçamba
+    CROP_Y_MAX =  1100  # mm — exclui teto do galpão (sensor top está em 2400mm)
   
   # Bucket point removal algorithm --------------------------------------------------------
   class BucketRemoval():

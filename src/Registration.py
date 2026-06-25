@@ -35,7 +35,7 @@ class Registration():
       o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
       3, [
           o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
-              0.1),
+              0.9),
           o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
               distance_threshold)
       ], o3d.pipelines.registration.RANSACConvergenceCriteria(max_iteration, confidence))
@@ -78,18 +78,21 @@ class Registration():
   
   def align_truck_bucket_and_load(self, load: o3d.geometry.PointCloud, bucket: o3d.geometry.PointCloud, voxel_size: float,
                                   max_iteration_ransac: int, confidence: float, max_nn_normals: int, max_nn_fpfh: int,
-                                  epsilon: float, max_iteration_icp: int, ransac_loop_size:int =5) -> o3d.geometry.PointCloud:
-    try:     
+                                  epsilon: float, max_iteration_icp: int, ransac_loop_size: int = 5) -> o3d.geometry.PointCloud:
+    try:
+      load_roi, bucket_roi = load, bucket
+
       result_ransac = None
 
       for _ in range(ransac_loop_size):
-        source_down, source_fpfh = self.preprocess_point_cloud(load, voxel_size, max_nn_normals, max_nn_fpfh)
-        target_down, target_fpfh = self.preprocess_point_cloud(bucket, voxel_size, max_nn_normals, max_nn_fpfh)
-          
+        source_down, source_fpfh = self.preprocess_point_cloud(load_roi, voxel_size, max_nn_normals, max_nn_fpfh)
+        target_down, target_fpfh = self.preprocess_point_cloud(bucket_roi, voxel_size, max_nn_normals, max_nn_fpfh)
+
         result = self.ransac_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size, max_iteration_ransac, confidence)
         if not result_ransac or result.fitness > result_ransac.fitness:
           result_ransac = result
 
+      # ICP refina sobre as nuvens completas (não recortadas) para preservar todos os pontos
       result_icp = self.icp_registration(load, bucket, result_ransac.transformation, voxel_size, 'generalized', epsilon, max_iteration_icp)
       
       transformation = np.array(result_icp.transformation)

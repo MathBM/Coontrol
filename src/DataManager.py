@@ -105,17 +105,30 @@ class DataManager():
     def process_data(self, scan_path: str) -> float:
         """Fluxo novo: alinhamento adaptativo → isolamento → volume por mapa de alturas 2D.
 
-        Calcula V = ∑ z_max(x,y) × Δx × Δy diretamente sobre a nuvem de pontos.
+        Calcula V = ∑ altura(a,b) × Δa × Δb diretamente sobre a nuvem de pontos.
         Não requer malha fechada — robusto a buracos e regiões esparsas.
+
+        O eixo vertical difere entre sintético (Z, piso=0) e real (Y, piso na caçamba).
         """
         xyz, truck_bucket = self._load_scan_and_bucket(scan_path)
         aligned_pcd = self._align_auto(scan_path, xyz, truck_bucket)
         load_pcd = self._isolate_load(truck_bucket, aligned_pcd)
 
-        volume = self.volume_calculator.volume_from_heightmap(
-            load_pcd,
-            cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
-        )
+        if os.path.isfile(f"{scan_path}SYNTHETIC_INFO.txt"):
+            # Sintético: Z = altura, footprint (X,Y), piso em 0, up = +Z
+            volume = self.volume_calculator.volume_from_heightmap(
+                load_pcd,
+                cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
+            )
+        else:
+            # Real: Y = vertical, varredura em Z. Volume varrido por seções transversais
+            # (Σ A(z)·dz) — robusto à esparsidade no eixo Z entre linhas de scan.
+            floor_y = self.volume_calculator.detect_floor_level(truck_bucket, height_axis=1)
+            volume = self.volume_calculator.volume_swept_sections(
+                load_pcd,
+                x_cell=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
+                floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=-1.0,
+            )
         return volume
 
     # ------------------------------------------------------------------
