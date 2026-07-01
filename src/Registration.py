@@ -35,7 +35,7 @@ class Registration():
       o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
       3, [
           o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
-              0.1),
+              0.9),
           o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
               distance_threshold)
       ], o3d.pipelines.registration.RANSACConvergenceCriteria(max_iteration, confidence))
@@ -102,61 +102,24 @@ class Registration():
   
   def align_truck_bucket_and_load(self, load: o3d.geometry.PointCloud, bucket: o3d.geometry.PointCloud, voxel_size: float,
                                   max_iteration_ransac: int, confidence: float, max_nn_normals: int, max_nn_fpfh: int,
-                                  epsilon: float, max_iteration_icp: int, ransac_loop_size:int =5, method: str="OTHER") -> o3d.geometry.PointCloud:
-    try:    
+                                  epsilon: float, max_iteration_icp: int, ransac_loop_size: int = 5) -> o3d.geometry.PointCloud:
+    try:
+      load_roi, bucket_roi = load, bucket
+
       result_ransac = None
-      if (method == "MASS"):
-        # 1. PRÉ-ALINHAMENTO POR CENTRO DE MASSA
-        aligned = self.align_by_center_of_mass(load, bucket)
 
-        target_down, target_fpfh = self.preprocess_point_cloud(bucket, voxel_size, max_nn_normals, max_nn_fpfh)
-        
-        for _ in range(ransac_loop_size):
-            source_down, source_fpfh = self.preprocess_point_cloud(aligned, voxel_size, max_nn_normals, max_nn_fpfh)
-              
-            result = self.ransac_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size, max_iteration_ransac, confidence)
-            if not result_ransac or result.fitness > result_ransac.fitness:
-                result_ransac = result
+      for _ in range(ransac_loop_size):
+        source_down, source_fpfh = self.preprocess_point_cloud(load_roi, voxel_size, max_nn_normals, max_nn_fpfh)
+        target_down, target_fpfh = self.preprocess_point_cloud(bucket_roi, voxel_size, max_nn_normals, max_nn_fpfh)
 
-        trans_init = result_ransac.transformation if result_ransac and result_ransac.fitness > 0 else np.eye(4)
+        result = self.ransac_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size, max_iteration_ransac, confidence)
+        if not result_ransac or result.fitness > result_ransac.fitness:
+          result_ransac = result
 
-        # 3. REFINAMENTO LOCAL (ICP)
-        result_icp = self.icp_registration(aligned, bucket, trans_init, voxel_size, 'generalized', epsilon, max_iteration_icp)
-        icp_t = np.array(result_icp.transformation)
-
-        # 4. APLICAÇÃO DA MATRIZ DE TRAVA RÍGIDA
-        # Montamos uma nova matriz para forçar restrições físicas do caminhão/caçamba
-        final_transformation = np.eye(4)
-        
-        # Preserva translações horizontais (X) e longitudinais (Z), zera a flutuação vertical/profundidade (Y)
-        final_transformation[0][3] = icp_t[0][3]
-        final_transformation[1][3] = 0.0  
-        final_transformation[2][3] = icp_t[2][3]
-        
-        R = icp_t[:3, :3]
-        yaw = np.arctan2(R[2, 0], R[0, 0])
-        
-        final_transformation[0, 0] = np.cos(yaw)
-        final_transformation[0, 2] = np.sin(yaw)
-        final_transformation[2, 0] = -np.sin(yaw)
-        final_transformation[2, 2] = np.cos(yaw)
-        
-        # 5. TRANSFORMAÇÃO FINAL
-        aligned.transform(final_transformation)
-
-        return aligned
-      else:
-        for _ in range(ransac_loop_size):
-          source_down, source_fpfh = self.preprocess_point_cloud(load, voxel_size, max_nn_normals, max_nn_fpfh)
-          target_down, target_fpfh = self.preprocess_point_cloud(bucket, voxel_size, max_nn_normals, max_nn_fpfh)
-            
-          result = self.ransac_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size, max_iteration_ransac, confidence)
-          if not result_ransac or result.fitness > result_ransac.fitness:
-            result_ransac = result
-
-        result_icp = self.icp_registration(load, bucket, result_ransac.transformation, voxel_size, 'generalized', epsilon, max_iteration_icp)
-        
-        transformation = np.array(result_icp.transformation)
+      # ICP refina sobre as nuvens completas (não recortadas) para preservar todos os pontos
+      result_icp = self.icp_registration(load, bucket, result_ransac.transformation, voxel_size, 'generalized', epsilon, max_iteration_icp)
+      
+      transformation = np.array(result_icp.transformation)
 
         # Cancel x rotation
         transformation[1][0] = 0

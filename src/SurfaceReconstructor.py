@@ -319,12 +319,9 @@ class SurfaceReconstructor():
     mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(load, alpha)
     bbox = load.get_axis_aligned_bounding_box()
     mesh = mesh.crop(bbox)
-
-    # Refine the mesh
     mesh = mesh.filter_smooth_simple(number_of_iterations=n_filter_iterations)
     mesh.paint_uniform_color([0.7, 0.7, 0.7])
     mesh.compute_triangle_normals()
-
     return mesh
 
     

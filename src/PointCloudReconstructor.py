@@ -6,6 +6,7 @@ from math import cos, sin, pi
 from struct import pack, unpack
 
 from src.Constants import Constants
+from src.Parameters import Parameters
 
 
 
@@ -68,6 +69,44 @@ class PointCloudReconstructor():
         xyz_left  = self.transform(xyz_left,  (0, 0, -pi/2), (0, Constants.SENSOR_TOP_HEIGHT, 0))
         xyz_top   = self.transform(xyz_top,   (0, 0, -pi/2), (Constants.SENSOR_TOP_X_OFFSET, Constants.SENSOR_TOP_HEIGHT, 0))
 
+        # Clip em coordenadas mundiais: remove paredes/teto do galpão que ficaram fora da caçamba
+        p = Parameters.Registration
+        xyz_right = self.remove_boundaries(xyz_right, p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
+        xyz_left  = self.remove_boundaries(xyz_left,  p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
+        xyz_top   = self.remove_boundaries(xyz_top,   p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
+
+        # Recorte lateral só do top: tira as faces das paredes que o sensor top
+        # enxerga de cima, deixando apenas chão/carga. Centrado no X_OFFSET (o mesmo
+        # deslocamento aplicado ao top na linha acima), então acompanha o alinhamento
+        # manual e a parede fica por conta exclusiva do left/right
+        # (ver Constants.SENSOR_TOP_FLOOR_HALF_WIDTH).
+        hw = Constants.SENSOR_TOP_FLOOR_HALF_WIDTH
+        xyz_top = self.remove_boundaries(
+            xyz_top,
+            Constants.SENSOR_TOP_X_OFFSET - hw,
+            Constants.SENSOR_TOP_X_OFFSET + hw,
+            p.CROP_Y_MIN,
+            p.CROP_Y_MAX,
+        )
+
+        # Correção de yaw do top: desfaz a diagonal da borda da frente causada pelo
+        # sensor torto (shear em Z proporcional a X). Ver Constants.SENSOR_TOP_YAW_SLOPE.
+        yaw = Constants.SENSOR_TOP_YAW_SLOPE
+        if yaw:
+            cx = Constants.SENSOR_TOP_X_OFFSET
+            xyz_top = [(pt[0], pt[1], pt[2] + yaw * (pt[0] - cx)) for pt in xyz_top]
+
+        # Split por lado: cada sensor lateral varre a seção inteira e enxerga também a
+        # parede oposta / o interior, jogando pontos no lado errado (contaminação
+        # cruzada, visível como L e R misturados nos dois lados sob a carga). Cada um
+        # fica só com a sua metade — right à direita do centro, left à esquerda. O
+        # centro é o X_OFFSET (mesmo centro do piso do top), então acompanha o
+        # alinhamento manual. A parede fica por conta do sensor do respectivo lado e o
+        # chão/carga por conta do top.
+        center = Constants.SENSOR_TOP_X_OFFSET
+        xyz_right = [pt for pt in xyz_right if pt[0] > center]
+        xyz_left  = [pt for pt in xyz_left  if pt[0] < center]
+
         xyz = list()
         xyz.extend(xyz_right)
         xyz.extend(xyz_left)
@@ -97,6 +136,29 @@ class PointCloudReconstructor():
                     z_axis[i] = y
 
                 xyz_front.append((x, y, z))
+
+        # Fix A: descarta o salto espúrio de fim de passagem.
+        # Quando a traseira do caminhão sai da janela do sensor front, ele volta a
+        # ler o fundo (~2440mm) e z_axis dispara (ex.: 170 -> 2440). Essas linhas
+        # finais jogam a parede traseira dos sensores laterais pro Z errado, fazendo
+        # a parede "sumir" no scan com carga. Depois que o caminhão é detectado perto
+        # (z entra na metade inferior do range), congela z no último valor válido em
+        # vez de deixar voltar pro fundo. O caso sem carga não tem o salto e fica
+        # inalterado.
+        keys = sorted(z_axis.keys())
+        if keys:
+            z_min = min(z_axis[i] for i in keys)
+            z_max = max(z_axis[i] for i in keys)
+            near_threshold = z_min + 0.5 * (z_max - z_min)
+            truck_detected = False
+            last_valid = z_axis[keys[0]]
+            for i in keys:
+                if z_axis[i] <= near_threshold:
+                    truck_detected = True
+                    last_valid = z_axis[i]
+                elif truck_detected:
+                    # caminhão já estava perto e z disparou pro fundo -> congela
+                    z_axis[i] = last_valid
 
         return z_axis, xyz_front, front_timestamps
 
@@ -194,18 +256,28 @@ class PointCloudReconstructor():
         ts_front_start = sorted_ts[0]
         ts_front_end = sorted_ts[-1]
 
-        # Se o primeiro timestamp do sensor estiver mais de 2 s afastado do front,
-        # os relógios não estão sincronizados — usa alinhamento sequencial
+        # Fix B: correção uniforme de offset de relógio.
+        # Cada sensor tem um skew NTP próprio (ex.: right −6.35s, left −0.98s). O
+        # limiar antigo de 2s mandava o right pro alinhamento sequencial e o left pro
+        # timestamp com ~1s de erro residual, posicionando as paredes em Z diferentes
+        # entre si ("deslocada"). Os sensores varrem sincronizados (mesmo nº de scans
+        # e mesma duração), então o desvio é um offset ~constante: subtraindo-o, todos
+        # caem no mesmo critério (nearest-ts) no relógio do front.
         ts_sensor_start = scans[sorted_scan_keys[0]]["timestamp"]
-        if abs(ts_sensor_start - ts_front_start) > 2.0:
-            for key in zip(sorted_scan_keys, sorted_indices):
-                for xy in scans[key[0]]["xy"]:
-                    xyz.append((xy[0], xy[1], z_axis[key[1]]))
-            return xyz
+        clock_offset = ts_sensor_start - ts_front_start
 
-        # Alinha pelo timestamp mais próximo do sensor frontal (relógios sincronizados)
+        # Faixa de Z válida = rampa monotônica do front, excluindo os platôs saturados
+        # nos dois extremos (fundo e aproximação máxima), onde os pontos colapsariam num
+        # plano falso. Ver Constants.ZAXIS_PLATEAU_MARGIN.
+        zvals = list(z_axis.values())
+        z_lo, z_hi = min(zvals), max(zvals)
+        margin = Constants.ZAXIS_PLATEAU_MARGIN
+        # Só aplica se houver faixa útil suficiente (evita zerar tudo em rampas curtas).
+        drop_plateaus = (z_hi - z_lo) > 3 * margin
+        lo_cut, hi_cut = z_lo + margin, z_hi - margin
+
         for scan_key in sorted_scan_keys:
-            ts = scans[scan_key]["timestamp"]
+            ts = scans[scan_key]["timestamp"] - clock_offset
 
             # Descarta scans fora do intervalo de tempo do sensor frontal
             if ts < ts_front_start or ts > ts_front_end:
@@ -222,8 +294,13 @@ class PointCloudReconstructor():
                 else:
                     z_idx = sorted_indices[pos - 1]
 
+            z = z_axis[z_idx]
+            # Pula pontos que cairiam num platô saturado (plano falso)
+            if drop_plateaus and (z <= lo_cut or z >= hi_cut):
+                continue
+
             for xy in scans[scan_key]["xy"]:
-                xyz.append((xy[0], xy[1], z_axis[z_idx]))
+                xyz.append((xy[0], xy[1], z))
 
         return xyz
 
