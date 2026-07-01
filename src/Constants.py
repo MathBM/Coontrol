@@ -33,6 +33,16 @@ class Constants():
     SENSOR_TOP_Z_OFFSET = 0  # ajuste fino de posição Z do sensor top (mm); positivo = avança, negativo = recua
     SENSOR_TOP_X_OFFSET = 0   # ajuste fino de posição X do sensor top (mm); positivo = desloca para direita, negativo = para esquerda
 
+    # Correção de YAW do sensor top (giro no plano horizontal). Se o sensor não está
+    # perpendicular ao sentido de avanço, a linha de varredura fica diagonal; como cada
+    # varredura recebe UM Z só (do timestamp do front), a borda da frente sai torta em
+    # (X,Z) — "a esquerda começa antes da direita". Corrige-se com um shear em Z
+    # proporcional a X: Z += SLOPE*(X - X_OFFSET), aplicado só ao top.
+    # Valor = tan(yaw) em mm de Z por mm de X; calibrado deixando a borda da frente do
+    # chão (caixa vazia) perpendicular ao avanço (~0.09 -> borda quase plana).
+    # Sinal: se a torção piorar, inverta. 0 = sem correção.
+    SENSOR_TOP_YAW_SLOPE = 0.09
+
     # Recorte lateral do xyz_top, aplicado após o X_OFFSET, para tirar as paredes
     # que o sensor top enxerga de cima (silhueta das faces internas) e deixar só o
     # chão/carga. O sensor top, varrendo de cima, projeta a face vertical de cada

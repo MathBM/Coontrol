@@ -89,6 +89,13 @@ class PointCloudReconstructor():
             p.CROP_Y_MAX,
         )
 
+        # Correção de yaw do top: desfaz a diagonal da borda da frente causada pelo
+        # sensor torto (shear em Z proporcional a X). Ver Constants.SENSOR_TOP_YAW_SLOPE.
+        yaw = Constants.SENSOR_TOP_YAW_SLOPE
+        if yaw:
+            cx = Constants.SENSOR_TOP_X_OFFSET
+            xyz_top = [(pt[0], pt[1], pt[2] + yaw * (pt[0] - cx)) for pt in xyz_top]
+
         # Split por lado: cada sensor lateral varre a seção inteira e enxerga também a
         # parede oposta / o interior, jogando pontos no lado errado (contaminação
         # cruzada, visível como L e R misturados nos dois lados sob a carga). Cada um
