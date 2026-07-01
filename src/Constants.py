@@ -19,14 +19,19 @@ class Constants():
     SENSOR_TOP_HEIGHT = 1200
 
     # [sensor_x_offset, sensor_y_offset, sensor_z_offset]
+    # O componente Y (±1130) é o offset lateral de montagem — vira o X mundial da parede
+    # após a rotação -90°. Calibrado contra a silhueta que o sensor top vê da mesma parede
+    # (o top é a referência confiável): o right já batia (~+197 vs top ~+200); o left estava
+    # ~40mm para fora (-234 vs top -193), então -1130 -> -1090 puxa a parede esquerda para
+    # dentro, alinhando-a ao top. Recalibrar aqui se as paredes voltarem a descolar do top.
     SENSOR_RIGHT_TRANSLATION = (350, 1130, 0)
-    SENSOR_LEFT_TRANSLATION = (350, -1130, 0)
+    SENSOR_LEFT_TRANSLATION = (350, -1090, 0)
 
     # Euler angles [x, y, z]
     SENSOR_RIGHT_ROTATION = (0, 0, 0)
     SENSOR_LEFT_ROTATION = (0, 0, 0)
     SENSOR_TOP_Z_OFFSET = 0  # ajuste fino de posição Z do sensor top (mm); positivo = avança, negativo = recua
-    SENSOR_TOP_X_OFFSET = -15   # ajuste fino de posição X do sensor top (mm); positivo = desloca para direita, negativo = para esquerda
+    SENSOR_TOP_X_OFFSET = 0   # ajuste fino de posição X do sensor top (mm); positivo = desloca para direita, negativo = para esquerda
 
     # Recorte lateral do xyz_top, aplicado após o X_OFFSET, para tirar as paredes
     # que o sensor top enxerga de cima (silhueta das faces internas) e deixar só o
@@ -41,7 +46,7 @@ class Constants():
     # Não usar recorte em Y: parede e carga sobem juntas em altura, separá-las por
     # Y apagaria a carga nos scans carregados. Reduzir se ainda sobrar parede;
     # aumentar se estiver comendo borda do chão (paredes começam em ~±150-180mm).
-    SENSOR_TOP_FLOOR_HALF_WIDTH = 170
+    SENSOR_TOP_FLOOR_HALF_WIDTH = 200
 
     BOUNDARIES_PROFILE_X_MIN = 100
     BOUNDARIES_PROFILE_X_MAX = 1000
@@ -58,5 +63,16 @@ class Constants():
 
     BOUNDARIES_ZAXIS_Y_MIN = 3000  # distância mínima do sensor para o chão/esteira (clip longe)
     BOUNDARIES_ZAXIS_Y_MAX = 100   # distância máxima próxima ao sensor (clip perto, filtra ruído)
+
+    # O Z de cada ponto vem da DISTÂNCIA que o sensor front mede à frente do caminhão,
+    # válida só enquanto essa frente varre o campo do front (a "rampa" monotônica).
+    # Nas pontas a distância satura: fundo (~z_max, antes de o caminhão entrar no campo)
+    # e aproximação máxima (~z_min, frente parada perto). Como o sensor top já enxerga a
+    # carga nesses trechos sem referência de Z, os pontos colapsavam num PLANO FALSO
+    # (parede de carga real empilhada num Z só). Aqui descartamos os pontos cujo Z cai
+    # a MARGIN de cada extremo do z_axis — os dois platôs saíram, sobra a rampa.
+    # Trade-off aceito: perde-se a carga da frente/traseira que passou fora da rampa.
+    # Aumentar remove mais das pontas; diminuir arrisca deixar resquício do plano.
+    ZAXIS_PLATEAU_MARGIN = 20  # mm
 
 

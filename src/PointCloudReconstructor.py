@@ -89,6 +89,17 @@ class PointCloudReconstructor():
             p.CROP_Y_MAX,
         )
 
+        # Split por lado: cada sensor lateral varre a seção inteira e enxerga também a
+        # parede oposta / o interior, jogando pontos no lado errado (contaminação
+        # cruzada, visível como L e R misturados nos dois lados sob a carga). Cada um
+        # fica só com a sua metade — right à direita do centro, left à esquerda. O
+        # centro é o X_OFFSET (mesmo centro do piso do top), então acompanha o
+        # alinhamento manual. A parede fica por conta do sensor do respectivo lado e o
+        # chão/carga por conta do top.
+        center = Constants.SENSOR_TOP_X_OFFSET
+        xyz_right = [pt for pt in xyz_right if pt[0] > center]
+        xyz_left  = [pt for pt in xyz_left  if pt[0] < center]
+
         xyz = list()
         xyz.extend(xyz_right)
         xyz.extend(xyz_left)
@@ -248,6 +259,16 @@ class PointCloudReconstructor():
         ts_sensor_start = scans[sorted_scan_keys[0]]["timestamp"]
         clock_offset = ts_sensor_start - ts_front_start
 
+        # Faixa de Z válida = rampa monotônica do front, excluindo os platôs saturados
+        # nos dois extremos (fundo e aproximação máxima), onde os pontos colapsariam num
+        # plano falso. Ver Constants.ZAXIS_PLATEAU_MARGIN.
+        zvals = list(z_axis.values())
+        z_lo, z_hi = min(zvals), max(zvals)
+        margin = Constants.ZAXIS_PLATEAU_MARGIN
+        # Só aplica se houver faixa útil suficiente (evita zerar tudo em rampas curtas).
+        drop_plateaus = (z_hi - z_lo) > 3 * margin
+        lo_cut, hi_cut = z_lo + margin, z_hi - margin
+
         for scan_key in sorted_scan_keys:
             ts = scans[scan_key]["timestamp"] - clock_offset
 
@@ -266,8 +287,13 @@ class PointCloudReconstructor():
                 else:
                     z_idx = sorted_indices[pos - 1]
 
+            z = z_axis[z_idx]
+            # Pula pontos que cairiam num platô saturado (plano falso)
+            if drop_plateaus and (z <= lo_cut or z >= hi_cut):
+                continue
+
             for xy in scans[scan_key]["xy"]:
-                xyz.append((xy[0], xy[1], z_axis[z_idx]))
+                xyz.append((xy[0], xy[1], z))
 
         return xyz
 

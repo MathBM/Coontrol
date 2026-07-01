@@ -190,10 +190,11 @@ else:
     # do mapa de alturas que trataria os gaps entre linhas como altura zero.
     floor_y = volume_calculator.detect_floor_level(truck_bucket, height_axis=1)
     print(f"[VOLUME] Piso da caçamba em Y={floor_y:.0f}mm — volume varrido por seções (X×Y por linha de scan Z)")
+    # up_sign=+1: carga ACIMA do piso na geometria atual (sensor top 1200mm) — Y_carga > Y_piso
     volume_mm3 = volume_calculator.volume_swept_sections(
         load_pcd,
         x_cell=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
-        floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=-1.0
+        floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=1.0
     )
 volume_m3 = volume_mm3 / 1_000_000_000
 

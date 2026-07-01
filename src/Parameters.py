@@ -9,13 +9,15 @@ class Parameters():
     EPSILON = 1e-6
     MAX_ITERATION_ICP = 200
     RANSAC_LOOP_SIZE = 30    # mais tentativas estocásticas para escapar do mínimo local identidade
-    # NOTA: CROP_* NÃO são usados pela pipeline atual — align_truck_bucket_and_load faz
-    # load_roi, bucket_roi = load, bucket (sem recorte) e debug_pipeline não os passa.
-    # Mantidos só como referência; valores abaixo refletem a nova geometria (sensor top
-    # em 1200mm, caixa ~±280mm em X, piso ~688mm em Y) caso voltem a ser ligados.
+    # NOTA: CROP_* são usados por PointCloudReconstructor.create_point_cloud (recorte
+    # mundial das 3 nuvens), NÃO por align_truck_bucket_and_load (que roda sem recorte).
+    # Geometria atual: sensor top em 1200mm, caixa ~±280mm em X, piso ~656-688mm em Y.
     CROP_X_MIN = -400   # mm
     CROP_X_MAX =  400   # mm
-    CROP_Y_MIN =  250   # mm
+    # CROP_Y_MIN sobe até logo abaixo do piso (piso do top ~656mm). Abaixo disso os
+    # sensores left/right registram só reflexões/ruído sub-piso (faixa Y 250-550 que
+    # aparecia embaixo da carga) — nada real da caçamba existe abaixo do piso.
+    CROP_Y_MIN =  600   # mm — remove ruído sub-piso; piso real fica acima
     CROP_Y_MAX =  1150  # mm — sensor top agora em 1200mm
   
   # Bucket point removal algorithm --------------------------------------------------------

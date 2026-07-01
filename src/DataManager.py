@@ -123,11 +123,14 @@ class DataManager():
         else:
             # Real: Y = vertical, varredura em Z. Volume varrido por seções transversais
             # (Σ A(z)·dz) — robusto à esparsidade no eixo Z entre linhas de scan.
+            # up_sign=+1: na geometria atual (sensor top em 1200mm) a carga fica ACIMA
+            # do piso, i.e. Y da carga > Y do piso. (Era -1 na geometria antiga, em que
+            # a carga subia em direção a Y menor.)
             floor_y = self.volume_calculator.detect_floor_level(truck_bucket, height_axis=1)
             volume = self.volume_calculator.volume_swept_sections(
                 load_pcd,
                 x_cell=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
-                floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=-1.0,
+                floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=1.0,
             )
         return volume
 

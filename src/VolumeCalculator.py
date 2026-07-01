@@ -87,7 +87,7 @@ class VolumeCalculator():
 
     def volume_swept_sections(self, load: o3d.geometry.PointCloud, x_cell: float = 20.0,
                               floor: float = 0.0, lateral_axis: int = 0, vertical_axis: int = 1,
-                              sweep_axis: int = 2, up_sign: float = -1.0) -> float:
+                              sweep_axis: int = 2, up_sign: float = 1.0) -> float:
         """
         Volume por integração de seções transversais (swept volume).
 
@@ -108,7 +108,7 @@ class VolumeCalculator():
             floor: coordenada do piso no eixo vertical (altura zero)
             lateral_axis/vertical_axis/sweep_axis: índices dos eixos (real: X=0, Y=1, Z=2)
             up_sign: +1 se "para cima" = eixo vertical crescente; -1 se decrescente
-                     (real: -1, pois a carga sobe em direção a Y menor)
+                     (real atual: +1 — sensor top em 1200mm, carga com Y > Y do piso)
         Returns:
             Volume em mm³
         """
