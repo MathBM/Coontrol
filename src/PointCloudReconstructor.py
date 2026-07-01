@@ -75,6 +75,20 @@ class PointCloudReconstructor():
         xyz_left  = self.remove_boundaries(xyz_left,  p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
         xyz_top   = self.remove_boundaries(xyz_top,   p.CROP_X_MIN, p.CROP_X_MAX, p.CROP_Y_MIN, p.CROP_Y_MAX)
 
+        # Recorte lateral só do top: tira as faces das paredes que o sensor top
+        # enxerga de cima, deixando apenas chão/carga. Centrado no X_OFFSET (o mesmo
+        # deslocamento aplicado ao top na linha acima), então acompanha o alinhamento
+        # manual e a parede fica por conta exclusiva do left/right
+        # (ver Constants.SENSOR_TOP_FLOOR_HALF_WIDTH).
+        hw = Constants.SENSOR_TOP_FLOOR_HALF_WIDTH
+        xyz_top = self.remove_boundaries(
+            xyz_top,
+            Constants.SENSOR_TOP_X_OFFSET - hw,
+            Constants.SENSOR_TOP_X_OFFSET + hw,
+            p.CROP_Y_MIN,
+            p.CROP_Y_MAX,
+        )
+
         xyz = list()
         xyz.extend(xyz_right)
         xyz.extend(xyz_left)
@@ -104,6 +118,29 @@ class PointCloudReconstructor():
                     z_axis[i] = y
 
                 xyz_front.append((x, y, z))
+
+        # Fix A: descarta o salto espúrio de fim de passagem.
+        # Quando a traseira do caminhão sai da janela do sensor front, ele volta a
+        # ler o fundo (~2440mm) e z_axis dispara (ex.: 170 -> 2440). Essas linhas
+        # finais jogam a parede traseira dos sensores laterais pro Z errado, fazendo
+        # a parede "sumir" no scan com carga. Depois que o caminhão é detectado perto
+        # (z entra na metade inferior do range), congela z no último valor válido em
+        # vez de deixar voltar pro fundo. O caso sem carga não tem o salto e fica
+        # inalterado.
+        keys = sorted(z_axis.keys())
+        if keys:
+            z_min = min(z_axis[i] for i in keys)
+            z_max = max(z_axis[i] for i in keys)
+            near_threshold = z_min + 0.5 * (z_max - z_min)
+            truck_detected = False
+            last_valid = z_axis[keys[0]]
+            for i in keys:
+                if z_axis[i] <= near_threshold:
+                    truck_detected = True
+                    last_valid = z_axis[i]
+                elif truck_detected:
+                    # caminhão já estava perto e z disparou pro fundo -> congela
+                    z_axis[i] = last_valid
 
         return z_axis, xyz_front, front_timestamps
 
@@ -201,18 +238,18 @@ class PointCloudReconstructor():
         ts_front_start = sorted_ts[0]
         ts_front_end = sorted_ts[-1]
 
-        # Se o primeiro timestamp do sensor estiver mais de 2 s afastado do front,
-        # os relógios não estão sincronizados — usa alinhamento sequencial
+        # Fix B: correção uniforme de offset de relógio.
+        # Cada sensor tem um skew NTP próprio (ex.: right −6.35s, left −0.98s). O
+        # limiar antigo de 2s mandava o right pro alinhamento sequencial e o left pro
+        # timestamp com ~1s de erro residual, posicionando as paredes em Z diferentes
+        # entre si ("deslocada"). Os sensores varrem sincronizados (mesmo nº de scans
+        # e mesma duração), então o desvio é um offset ~constante: subtraindo-o, todos
+        # caem no mesmo critério (nearest-ts) no relógio do front.
         ts_sensor_start = scans[sorted_scan_keys[0]]["timestamp"]
-        if abs(ts_sensor_start - ts_front_start) > 2.0:
-            for key in zip(sorted_scan_keys, sorted_indices):
-                for xy in scans[key[0]]["xy"]:
-                    xyz.append((xy[0], xy[1], z_axis[key[1]]))
-            return xyz
+        clock_offset = ts_sensor_start - ts_front_start
 
-        # Alinha pelo timestamp mais próximo do sensor frontal (relógios sincronizados)
         for scan_key in sorted_scan_keys:
-            ts = scans[scan_key]["timestamp"]
+            ts = scans[scan_key]["timestamp"] - clock_offset
 
             # Descarta scans fora do intervalo de tempo do sensor frontal
             if ts < ts_front_start or ts > ts_front_end:
