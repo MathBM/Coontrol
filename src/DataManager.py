@@ -27,8 +27,16 @@ class DataManager():
     # Helpers privados compartilhados pelos dois fluxos
     # ------------------------------------------------------------------
 
-    def _load_scan_and_bucket(self, scan_path: str):
-        """Carrega a nuvem de pontos do scan e da caçamba de referência."""
+    def _load_scan_and_bucket(self, scan_path: str, bucket_path: str = None):
+        """Carrega a nuvem de pontos do scan e da caçamba de referência de forma dinâmica.
+        
+        Se 'bucket_path' não for fornecido, utiliza o 'Constants.BUCKET_PATH' como fallback.
+        """
+        # Define qual caçamba utilizar (a dinâmica enviada ou o padrão fixo)
+        if bucket_path is None:
+            bucket_path = Constants.BUCKET_PATH
+
+        # Carga ou reconstrução da nuvem da carga (Scan Atual)
         if os.path.isfile(f"{scan_path}data.npz"):
             print(f"[INFO] Carregando dados de {scan_path}data.npz")
             xyz_array = np.load(f"{scan_path}data.npz")["xyz"]
@@ -41,15 +49,16 @@ class DataManager():
             xyz = o3d.geometry.PointCloud()
             xyz.points = o3d.utility.Vector3dVector(xyz_list)
 
-        bucket_data_path = f"{Constants.BUCKET_PATH}/data.npz"
+        # Carga ou reconstrução da nuvem da caçamba vazia (Dinâmica/Par correspondente)
+        bucket_data_path = f"{bucket_path}/data.npz"
         if os.path.isfile(bucket_data_path):
-            print(f"[INFO] Carregando caçamba de {bucket_data_path}")
+            print(f"[INFO] Carregando caçamba diretamente de {bucket_data_path}")
             bucket_array = np.load(bucket_data_path)["xyz"]
             truck_bucket = o3d.geometry.PointCloud()
             truck_bucket.points = o3d.utility.Vector3dVector(bucket_array)
         else:
-            print(f"[INFO] Processando arquivos binários da caçamba de {Constants.BUCKET_PATH}")
-            bucket_list = self.pcd_reconstructor.create_point_cloud(Constants.BUCKET_PATH)
+            print(f"[INFO] Processando arquivos binários da caçamba de {bucket_path}")
+            bucket_list = self.pcd_reconstructor.create_point_cloud(bucket_path)
             truck_bucket = o3d.geometry.PointCloud()
             truck_bucket.points = o3d.utility.Vector3dVector(np.array(bucket_list))
 
@@ -102,13 +111,13 @@ class DataManager():
     # Fluxo novo — Mapa de Alturas 2D
     # ------------------------------------------------------------------
 
-    def process_data(self, scan_path: str) -> float:
+    def process_data(self, scan_path: str, bucket_path: str = None) -> float:
         """Fluxo novo: alinhamento adaptativo → isolamento → volume por mapa de alturas 2D.
 
         Calcula V = ∑ z_max(x,y) × Δx × Δy diretamente sobre a nuvem de pontos.
-        Não requer malha fechada — robusto a buracos e regiões esparsas.
+        Suporta caçamba de referência dinâmica informada via 'bucket_path'.
         """
-        xyz, truck_bucket = self._load_scan_and_bucket(scan_path)
+        xyz, truck_bucket = self._load_scan_and_bucket(scan_path, bucket_path)
         aligned_pcd = self._align_auto(scan_path, xyz, truck_bucket)
         load_pcd = self._isolate_load(truck_bucket, aligned_pcd)
 
@@ -122,13 +131,13 @@ class DataManager():
     # Fluxo legado — Poisson + Teorema da Divergência
     # ------------------------------------------------------------------
 
-    def process_data_legacy(self, scan_path: str) -> float:
+    def process_data_legacy(self, scan_path: str, bucket_path: str = None) -> float:
         """Fluxo legado: RANSAC+ICP → isolamento → merge com caçamba → Poisson → volume.
 
         Constrói malha fechada (watertight) via Poisson e calcula o volume pelo
-        teorema da divergência. Sensível a buracos e regiões sem dados escaneados.
+        teorema da divergência. Suporta caçamba de referência dinâmica via 'bucket_path'.
         """
-        xyz, truck_bucket = self._load_scan_and_bucket(scan_path)
+        xyz, truck_bucket = self._load_scan_and_bucket(scan_path, bucket_path)
 
         # Fluxo legado sempre usa RANSAC+ICP (sem auto-detect sintético)
         aligned_pcd = self.registration.align_truck_bucket_and_load(
