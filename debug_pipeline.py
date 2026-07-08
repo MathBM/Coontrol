@@ -110,7 +110,7 @@ else:
         Parameters.Registration.MAX_NN_FPFH,
         Parameters.Registration.EPSILON,
         Parameters.Registration.MAX_ITERATION_ICP,
-        Parameters.Registration.RANSAC_LOOP_SIZE
+        Parameters.Registration.RANSAC_LOOP_SIZE,
     )
 
 print_stats("SCAN ALINHADO (aligned_pcd)", aligned_pcd)
@@ -158,7 +158,7 @@ print_stats("PONTOS COMPLETOS (full_pcd)", full_pcd)
 
 visualize_step([full_pcd], "4. Após Merge")
 
-# 5. RECONSTRUÇÃO DA MALHA (visualização — não é usada para calcular volume)
+# 5. RECONSTRUÇÃO DA MALHA (apenas visualização — não usada para calcular volume)
 print("\n[5] RECONSTRUÇÃO DA MALHA (Alpha Shapes legacy — apenas visualização)...")
 load_mesh = surface_reconstructor.reconstruct_load_mesh_legacy(
     full_pcd,
@@ -169,21 +169,32 @@ load_mesh = surface_reconstructor.reconstruct_load_mesh_legacy(
 print(f"Vértices: {len(load_mesh.vertices)}")
 print(f"Triângulos: {len(load_mesh.triangles)}")
 print(f"Watertight: {load_mesh.is_watertight()}")
-if not load_mesh.is_watertight():
-    print("⚠️  Malha aberta — cálculo de volume via malha seria impreciso.")
-    print("   Volume real é calculado via mapa de alturas (próximo passo).")
 
 visualize_step([load_mesh], "5. Malha Reconstruída (visualização)")
 
-# 6. CÁLCULO DO VOLUME — via mapa de alturas 2D sobre load_pcd
-# V = ∑ z_max(x,y) × Δx × Δy  (integra a superfície escaneada acima de z=0)
-# Robusto a buracos e malhas abertas: células sem dado contribuem z=0.
+# 6. CÁLCULO DO VOLUME — heightmap 2D sobre load_pcd
+# Não usa a malha — opera diretamente nos pontos isolados da carga.
+# Robusto a buracos: células sem ponto contribuem zero.
+# Eixo vertical difere entre sintético (Z, piso=0) e real (Y, piso ≈ 2270mm).
 print("\n[6] CÁLCULO DO VOLUME (mapa de alturas)...")
 volume_calculator = VolumeCalculator()
-volume_mm3 = volume_calculator.volume_from_heightmap(
-    load_pcd,
-    cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE
-)
+if is_synthetic:
+    # Sintético: Z = altura da rampa, footprint (X,Y), piso em 0, up = +Z
+    volume_mm3 = volume_calculator.volume_from_heightmap(
+        load_pcd,
+        cell_size=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE
+    )
+else:
+    # Real: Y = vertical, varredura em Z. Cada linha de scan é uma seção transversal.
+    # Volume varrido (Σ A(z)·dz) — robusto à esparsidade/buraco no eixo Z, ao contrário
+    # do mapa de alturas que trataria os gaps entre linhas como altura zero.
+    floor_y = volume_calculator.detect_floor_level(truck_bucket, height_axis=1)
+    print(f"[VOLUME] Piso da caçamba em Y={floor_y:.0f}mm — volume varrido por seções (X×Y por linha de scan Z)")
+    volume_mm3 = volume_calculator.volume_swept_sections(
+        load_pcd,
+        x_cell=Parameters.VolumeCalculation.HEIGHTMAP_CELL_SIZE,
+        floor=floor_y, lateral_axis=0, vertical_axis=1, sweep_axis=2, up_sign=-1.0
+    )
 volume_m3 = volume_mm3 / 1_000_000_000
 
 # Volume esperado depende do tipo (lido do SYNTHETIC_INFO.txt se disponível)
