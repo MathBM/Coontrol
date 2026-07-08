@@ -1,17 +1,13 @@
 import os
 from datetime import datetime
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QPushButton, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QPushButton
 
 from src.ScanManager import ScanManager
 from src.DataManager import DataManager
 from src.Constants import Constants
 from src.interface.MainWindow_ui import Ui_MainWindow
 from src.SyntheticScanCreator import SyntheticScanCreator
-
-import os
-import shutil
-from datetime import datetime
 
 
 class MainWindow(QMainWindow):
@@ -26,6 +22,10 @@ class MainWindow(QMainWindow):
         self.synthetic_creator = SyntheticScanCreator()
 
         self.scanList = list()
+
+        # Variáveis de controle para a automação nativa
+        self.current_scan_folder = None
+        self.current_placa = None
 
         # connects
         self.ui.btp_refreshTable.clicked.connect(self.refresh_table)
@@ -43,29 +43,94 @@ class MainWindow(QMainWindow):
         self.refresh_table()
 
     def start_scan(self):
+        # 1. Solicita a Placa do Caminhão
+        placa, ok_placa = QInputDialog.getText(self, "Identificação", "Digite a placa do caminhão:")
+        if not ok_placa or not placa.strip():
+            QMessageBox.warning(self, "Aviso", "A placa é obrigatória para iniciar o escaneamento.")
+            return
+
+        # 2. Solicita o Tipo de Escaneamento (Cria sempre uma pasta nova, seja cheia ou vazia)
+        tipos = ["caixa_cheia", "caixa_vazia"]
+        tipo, ok_tipo = QInputDialog.getItem(self, "Tipo de Scan", "Selecione o estado da caçamba:", tipos, 0, False)
+        if not ok_tipo or not tipo:
+            return
+
         self.ui.btp_startScan.setEnabled(False)
 
+        # 3. Formata strings e cria o diretório único do scan
+        placa_formatada = placa.strip().upper().replace("-", "").replace(" ", "")
         date = datetime.now().strftime("%Y-%m-%d_%Hh%Mmin%Ss")
-        output_folder = f"{Constants.SCANS_DIRECTORY}{date}/"
+        
+        folder_name = f"{tipo}_{placa_formatada}_{date}"
+        output_folder = f"{Constants.SCANS_DIRECTORY}{folder_name}/"
 
         if not os.path.exists(output_folder):
-            os.mkdir(output_folder)
+            os.makedirs(output_folder, exist_ok=True)
 
+        self.current_scan_folder = folder_name
+        self.current_placa = placa_formatada
+
+        # 4. Inicia a gravação física dos LiDars
         self.scan_manager.start_scan(output_folder)
-
         self.ui.btp_stopScan.setEnabled(True)
 
     def stop_scan(self):
         self.ui.btp_stopScan.setEnabled(False)
-
         self.scan_manager.stop_scan()
-
         self.ui.btp_startScan.setEnabled(True)
         self.refresh_table()
 
-    def process_data(self):
-        row_selected = self.ui.tbw_scans.selectedIndexes()
+        placa_verificar = self.current_placa
+        self.current_scan_folder = None
+        self.current_placa = None
 
+        if placa_verificar:
+            self.verificar_e_processar_par_automatico(placa_verificar)
+
+    def verificar_e_processar_par_automatico(self, placa: str):
+        """Busca o par dinamicamente e injeta os caminhos direto no DataManager"""
+        if not os.path.exists(Constants.SCANS_DIRECTORY):
+            return
+
+        pastas = os.listdir(Constants.SCANS_DIRECTORY)
+        pasta_cheia = None
+        pasta_vazia = None
+
+        # Localiza as pastas específicas desse caminhão
+        for f in pastas:
+            if placa in f:
+                if f.startswith("caixa_cheia"):
+                    pasta_cheia = f
+                elif f.startswith("caixa_vazia"):
+                    pasta_vazia = f
+
+        # Se encontrou o par correspondente nativo no disco
+        if pasta_cheia and pasta_vazia:
+            msg = f"Par correspondente encontrado para o caminhão {placa}!\n\nCheio: {pasta_cheia}\nVazio: {pasta_vazia}\n\nDeseja realizar o cálculo de volume nativo?"
+            resposta = QMessageBox.question(self, "Par Detectado", msg, QMessageBox.Yes | QMessageBox.No)
+            
+            if resposta == QMessageBox.Yes:
+                scan_path_cheio = f"{Constants.SCANS_DIRECTORY}{pasta_cheia}/"
+                scan_path_vazio = f"{Constants.SCANS_DIRECTORY}{pasta_vazia}/"
+                
+                try:
+                    # PROVA REAL CONFIÁVEL: Passando o caminho real do par por parâmetro na chamada
+                    if self.ui.cmb_method.currentIndex() == 0:
+                        volume = self.data_manager.process_data(scan_path_cheio, bucket_path=scan_path_vazio)
+                    else:
+                        volume = self.data_manager.process_data_legacy(scan_path_cheio, bucket_path=scan_path_vazio)
+                    
+                    QMessageBox.information(self, "Volume Calculado", f"O volume calculado de forma 100% dinâmica para o veículo {placa} é: {volume} m³")
+                    self.refresh_table()
+                    
+                except Exception as e:
+                    QMessageBox.critical(self, "Erro no Processamento", f"Falha ao processar cálculo volumétrico:\n{str(e)}")
+        else:
+            QMessageBox.information(self, "Scan Salvo", f"Captura do veículo {placa} salva. Aguardando a contraparte para habilitar o cálculo automático.")
+
+    def process_data(self):
+        """Processamento manual quando o operador clica em uma linha da tabela"""
+        row_selected = self.ui.tbw_scans.selectedIndexes()
         if not row_selected:
             return
 
@@ -73,12 +138,23 @@ class MainWindow(QMainWindow):
         scan_folder = self.scanList[row_index]
         scan_path = f"{Constants.SCANS_DIRECTORY}{scan_folder}/"
 
+        # Se o operador clicar manualmente em uma linha de caixa_cheia na tabela,
+        # tentamos achar uma caixa_vazia da MESMA placa para não recalcular errado.
+        bucket_path = None
+        if "caixa_cheia_" in scan_folder:
+            partes = scan_folder.split("_")
+            if len(partes) > 2:
+                placa_extraida = partes[2] # Extrai a placa do nome da pasta
+                for f in os.listdir(Constants.SCANS_DIRECTORY):
+                    if f.startswith("caixa_vazia_") and placa_extraida in f:
+                        bucket_path = f"{Constants.SCANS_DIRECTORY}{f}/"
+                        break
+
+        # Processa usando o par descoberto ou cai no fallback padrão do Constants.BUCKET_PATH
         if self.ui.cmb_method.currentIndex() == 0:
-            # Fluxo novo: alinhamento adaptativo + mapa de alturas 2D
-            volume = self.data_manager.process_data(scan_path)
+            volume = self.data_manager.process_data(scan_path, bucket_path=bucket_path)
         else:
-            # Fluxo legado: RANSAC+ICP + merge + Poisson + teorema da divergência
-            volume = self.data_manager.process_data_legacy(scan_path)
+            volume = self.data_manager.process_data_legacy(scan_path, bucket_path=bucket_path)
 
         item = self.ui.tbw_scans.item(row_index, 1)
         item.setText(str(volume))
@@ -106,72 +182,38 @@ class MainWindow(QMainWindow):
             self.ui.tbw_scans.setItem(row, 1, item_volume)
     
     def create_synthetic_scan(self):
-        """Cria um scan sintético e adiciona à lista"""
-        # Diálogo para escolher o tipo de rampa
-        items = ["Linear (rampa reta)", 
-                "Stepped (escada)", 
-                "Concave (côncava)", 
-                "Convex (convexa)"]
-        
-        item, ok = QInputDialog.getItem(
-            self, 
-            "Create Synthetic Scan",
-            "Escolha o tipo de rampa:", 
-            items, 
-            0, 
-            False
-        )
+        items = ["Linear (rampa reta)", "Stepped (escada)", "Concave (côncava)", "Convex (convexa)"]
+        item, ok = QInputDialog.getItem(self, "Create Synthetic Scan", "Escolha o tipo de rampa:", items, 0, False)
         
         if ok and item:
             try:
-                # Mapear escolha para tipo
                 type_map = {
                     "Linear (rampa reta)": "linear",
                     "Stepped (escada)": "stepped",
                     "Concave (côncava)": "concave",
                     "Convex (convexa)": "convex"
                 }
-                
                 ramp_type = type_map[item]
                 
-                # Criar scan sintético
                 self.ui.btp_createSyntheticScan.setEnabled(False)
                 self.ui.btp_createSyntheticScan.setText("Creating...")
                 
                 scan_path = self.synthetic_creator.create_synthetic_scan(
-                    ramp_type=ramp_type,
-                    width=2000,
-                    length=3000,
-                    height=800,
-                    point_density=8,
-                    noise_level=3.0
+                    ramp_type=ramp_type, width=2000, length=3000, height=800, point_density=8, noise_level=3.0
                 )
                 
                 self.ui.btp_createSyntheticScan.setEnabled(True)
                 self.ui.btp_createSyntheticScan.setText("Create Synthetic Scan")
-                
-                # Atualizar tabela
                 self.refresh_table()
                 
-                # Mensagem de sucesso
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"Synthetic scan created successfully!\n\nType: {item}\nPath: {scan_path}\n\nYou can now select it and click 'Process Data'."
-                )
-                
+                QMessageBox.information(self, "Success", f"Synthetic scan created successfully!\n\nType: {item}\nPath: {scan_path}")
             except Exception as e:
                 self.ui.btp_createSyntheticScan.setEnabled(True)
                 self.ui.btp_createSyntheticScan.setText("Create Synthetic Scan")
-                
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Failed to create synthetic scan:\n{str(e)}"
-                )
+                QMessageBox.critical(self, "Error", f"Failed to create synthetic scan:\n{str(e)}")
+
     def set_empty_bucket(self):
         row_selected = self.ui.tbw_scans.selectedIndexes()
-
         if not row_selected:
             QMessageBox.warning(self, "Aviso", "Selecione um scan na tabela para definir como caixa vazia.")
             return
@@ -179,9 +221,8 @@ class MainWindow(QMainWindow):
         row_index = row_selected[0].row()
         scan_folder = self.scanList[row_index]
         
-        # Evita tentar renomear a pasta para ela mesma
         if scan_folder == os.path.basename(Constants.BUCKET_PATH):
-            QMessageBox.information(self, "Info", "Este scan já é a caixa de referência.")
+            QMessageBox.information(self, "Info", "Este scan já é a caixa de referência de backup.")
             return
 
         src_path = os.path.join(Constants.SCANS_DIRECTORY, scan_folder)
@@ -189,27 +230,19 @@ class MainWindow(QMainWindow):
 
         try:
             backup_msg = ""
-            
-            # Preserva a caixa_vazia atual renomeando-a sequencialmente
             if os.path.exists(dst_path):
                 base_dir = os.path.dirname(dst_path)
                 base_name = os.path.basename(dst_path)
-                
                 counter = 1
                 backup_path = os.path.join(base_dir, f"{base_name}_{counter}")
-                
                 while os.path.exists(backup_path):
                     counter += 1
                     backup_path = os.path.join(base_dir, f"{base_name}_{counter}")
-                
                 os.rename(dst_path, backup_path)
-                backup_msg = f"\nA referência anterior foi preservada como '{os.path.basename(backup_path)}'."
+                backup_msg = f"\nA referência de backup anterior foi preservada como '{os.path.basename(backup_path)}'."
             
-            # Renomeia a pasta selecionada para o caminho padrão
             os.rename(src_path, dst_path)
-            
-            QMessageBox.information(self, "Sucesso", f"O scan '{scan_folder}' foi definido como a nova caixa de referência.{backup_msg}")
+            QMessageBox.information(self, "Sucesso", f"O scan '{scan_folder}' foi definido como o backup estático de referência.{backup_msg}")
             self.refresh_table()
-            
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Falha ao redefinir a caixa vazia:\n{str(e)}")
