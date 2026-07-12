@@ -107,9 +107,23 @@ class MainWindow(QMainWindow):
         # Se encontrou o par correspondente nativo no disco
         if pasta_cheia and pasta_vazia:
             msg = f"Par correspondente encontrado para o caminhão {placa}!\n\nCheio: {pasta_cheia}\nVazio: {pasta_vazia}\n\nDeseja realizar o cálculo de volume nativo?"
-            resposta = QMessageBox.question(self, "Par Detectado", msg, QMessageBox.Yes | QMessageBox.No)
             
-            if resposta == QMessageBox.Yes:
+            # Criando o QMessageBox customizado para traduzir os botões
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Par Detectado")
+            msg_box.setText(msg)
+            msg_box.setIcon(QMessageBox.Question)
+            
+            # Adiciona os botões de simulação lógica e altera o texto visual
+            sim_button = msg_box.addButton(QMessageBox.Yes)
+            nao_button = msg_box.addButton(QMessageBox.No)
+            sim_button.setText("Sim")
+            nao_button.setText("Não")
+            
+            msg_box.exec()
+            resposta = msg_box.clickedButton()
+            
+            if resposta == sim_button:
                 scan_path_cheio = f"{Constants.SCANS_DIRECTORY}{pasta_cheia}/"
                 scan_path_vazio = f"{Constants.SCANS_DIRECTORY}{pasta_vazia}/"
                 
@@ -245,4 +259,4 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Sucesso", f"O scan '{scan_folder}' foi definido como o backup estático de referência.{backup_msg}")
             self.refresh_table()
         except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Falha ao redefinir a caixa vazia:\n{str(e)}")
+            QMessageBox.critical(self, "Erro", f"Failed to redefinir a caixa vazia:\n{str(e)}")
